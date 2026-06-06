@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VOTAN.DS / PAINT</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div id="app" class="shell">
+    <!-- Barra superior: marca + menus -->
+    <header class="top-bar">
+      <div class="top-bar__brand">
+        <span>votan.ds</span><span class="brand-sub">/ paint</span>
+      </div>
+      <nav class="menubar" aria-label="Menu principal">
+        <div class="menu-wrap">
+          <button class="menu-btn" type="button" data-menu="file">[ arquivo ]</button>
+          <div class="menu-drop" hidden>
+            <button type="button" data-action="new">novo</button>
+            <button type="button" data-action="open">abrir</button>
+            <button type="button" data-action="save">salvar</button>
+          </div>
+        </div>
+        <div class="menu-wrap">
+          <button class="menu-btn" type="button" data-menu="edit">[ edição ]</button>
+          <div class="menu-drop" hidden>
+            <button type="button" data-action="undo">desfazer</button>
+            <button type="button" data-action="redo">refazer</button>
+            <button type="button" data-action="copy">copiar</button>
+            <button type="button" data-action="paste">colar</button>
+            <button type="button" data-action="cut">recortar</button>
+          </div>
+        </div>
+        <div class="menu-wrap">
+          <button class="menu-btn" type="button" data-menu="view">[ exibir ]</button>
+          <div class="menu-drop" hidden>
+            <button type="button" data-action="zoom-1">zoom 1×</button>
+            <button type="button" data-action="zoom-2">zoom 2×</button>
+            <button type="button" data-action="zoom-4">zoom 4×</button>
+            <button type="button" data-action="zoom-8">zoom 8×</button>
+            <button type="button" data-action="toggle-grid">grade on/off</button>
+            <button type="button" data-action="toggle-theme" id="menu-theme-toggle">modo claro</button>
+          </div>
+        </div>
+      </nav>
+    </header>
+
+    <div class="workspace">
+      <!-- Barra lateral: só ferramentas -->
+      <aside class="sidebar" aria-label="Ferramentas">
+        <nav class="tool-grid" id="tool-grid" role="group" aria-label="Ferramentas de desenho"></nav>
+      </aside>
+
+      <div class="main-col">
+        <main class="canvas-zone">
+          <div class="viewport" id="viewport">
+            <div class="canvas-frame">
+              <div class="canvas-stage" id="canvas-stage">
+                <canvas id="grid-canvas" aria-hidden="true"></canvas>
+                <canvas id="main-canvas" aria-label="Área de desenho"></canvas>
+                <canvas id="overlay-canvas" aria-hidden="true"></canvas>
+              </div>
+            </div>
+          </div>
+        </main>
+
+        <!-- Painel inferior unificado -->
+        <div class="dock">
+          <div class="dock__section" id="dock-size">
+            <span class="dock__label">espessura</span>
+            <div class="size-row">
+              <button class="size-btn" type="button" data-brush-size="1" title="1 pixel">
+                <span class="size-dot" style="--dot:3px"></span><span>1</span>
+              </button>
+              <button class="size-btn active" type="button" data-brush-size="3" title="3 pixels">
+                <span class="size-dot" style="--dot:5px"></span><span>3</span>
+              </button>
+              <button class="size-btn" type="button" data-brush-size="5" title="5 pixels">
+                <span class="size-dot" style="--dot:7px"></span><span>5</span>
+              </button>
+              <button class="size-btn" type="button" data-brush-size="8" title="8 pixels">
+                <span class="size-dot" style="--dot:9px"></span><span>8</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="dock__section" id="dock-tip">
+            <span class="dock__label">ponta</span>
+            <div class="tip-row">
+              <button class="tip-btn active" type="button" data-brush-tip="round" title="Redonda">○</button>
+              <button class="tip-btn" type="button" data-brush-tip="square" title="Quadrada">□</button>
+              <button class="tip-btn" type="button" data-brush-tip="diagonal" title="Diagonal">╱</button>
+            </div>
+          </div>
+
+          <div class="dock__section" id="dock-shape" hidden>
+            <span class="dock__label">forma</span>
+            <div class="tip-row">
+              <button class="tip-btn active" type="button" data-shape-mode="outline">contorno</button>
+              <button class="tip-btn" type="button" data-shape-mode="both">ambos</button>
+              <button class="tip-btn" type="button" data-shape-mode="fill">sólido</button>
+            </div>
+          </div>
+
+          <div class="dock__section dock__section--palette">
+            <span class="dock__label">cores</span>
+            <div class="palette-grid" id="color-palette" role="group" aria-label="Paleta de cores"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Barra de status -->
+    <footer class="statusbar">
+      <span id="status-coords">x: 0 · y: 0</span>
+      <span class="status-sep">|</span>
+      <span id="status-zoom">zoom: 1×</span>
+      <span class="status-sep">|</span>
+      <span id="status-canvas">800×600</span>
+      <span class="status-sep">|</span>
+      <span id="status-tool">lápis</span>
+      <span class="status-sep">|</span>
+      <span class="status-color-wrap">
+        <span class="status-swatch" id="status-swatch"></span>
+        <span id="status-color">#ffffff</span>
+      </span>
+    </footer>
+  </div>
+
+  <div class="modal-backdrop" id="modal-backdrop" hidden>
+    <dialog class="modal" id="modal-new" aria-labelledby="modal-new-title">
+      <h2 id="modal-new-title" class="modal__title">novo desenho</h2>
+      <form id="form-new" class="modal__form">
+        <label class="modal__field">
+          <span>largura (px)</span>
+          <input type="number" name="width" value="800" min="100" max="4096" required>
+        </label>
+        <label class="modal__field">
+          <span>altura (px)</span>
+          <input type="number" name="height" value="600" min="100" max="4096" required>
+        </label>
+        <div class="modal__actions">
+          <button type="button" class="modal-btn" data-modal-cancel>cancelar</button>
+          <button type="submit" class="modal-btn modal-btn--accent">criar</button>
+        </div>
+      </form>
+    </dialog>
+  </div>
+
+  <input type="file" id="file-input" accept="image/*" hidden>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
