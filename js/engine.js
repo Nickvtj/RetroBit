@@ -1,128 +1,38 @@
-import { floodFill, hexToRgba, getPixel, rgbaToHex } from './algorithms.js';
-import { getThemeColors } from './state.js';
+import { state } from './state.js';
+import { getCanvasBg, getThemeColors } from './theme.js';
 
 export class CanvasEngine {
   constructor(elements) {
-    this.stage = elements.stage;
-    this.viewport = elements.viewport;
-    this.gridCanvas = elements.gridCanvas;
     this.mainCanvas = elements.mainCanvas;
     this.overlayCanvas = elements.overlayCanvas;
-    this.gridCtx = this.gridCanvas.getContext('2d');
     this.ctx = this.mainCanvas.getContext('2d');
     this.overlayCtx = this.overlayCanvas.getContext('2d');
-    this.width = 800;
-    this.height = 600;
-    this.displayZoom = 1;
-    this.showGrid = true;
-    this.onStatusUpdate = null;
+    this.width = state.canvasWidth;
+    this.height = state.canvasHeight;
   }
 
-  getCanvasBg() {
-    return getThemeColors().canvasBg;
-  }
-
-  setSize(w, h) {
-    const prev = this.ctx.getImageData(0, 0, this.width, this.height);
+  init(w, h) {
     this.width = w;
     this.height = h;
-
-    [this.gridCanvas, this.mainCanvas, this.overlayCanvas].forEach((c) => {
-      c.width = w;
-      c.height = h;
-    });
-
-    this.stage.style.width = `${w * this.displayZoom}px`;
-    this.stage.style.height = `${h * this.displayZoom}px`;
-
+    this.mainCanvas.width = w;
+    this.mainCanvas.height = h;
+    this.overlayCanvas.width = w;
+    this.overlayCanvas.height = h;
     this.fillBackground();
-
-    const copyW = Math.min(prev.width, w);
-    const copyH = Math.min(prev.height, h);
-    if (copyW > 0 && copyH > 0) {
-      this.ctx.putImageData(prev, 0, 0, 0, 0, copyW, copyH);
-    }
-
-    this.redrawGrid();
     this.clearOverlay();
-    this.applyZoom();
-    this.notifyStatus();
   }
 
   fillBackground() {
-    this.ctx.fillStyle = this.getCanvasBg();
+    this.ctx.fillStyle = getCanvasBg();
     this.ctx.fillRect(0, 0, this.width, this.height);
   }
 
-  applyZoom() {
-    const scale = this.displayZoom;
-    [this.gridCanvas, this.mainCanvas, this.overlayCanvas].forEach((c) => {
-      c.style.width = `${this.width * scale}px`;
-      c.style.height = `${this.height * scale}px`;
-    });
-    this.stage.style.width = `${this.width * scale}px`;
-    this.stage.style.height = `${this.height * scale}px`;
-    this.stage.classList.toggle('zoomed', scale > 1);
-    this.notifyStatus();
-  }
-
-  setZoom(level) {
-    this.displayZoom = level;
-    this.applyZoom();
-    this.redrawGrid();
-  }
-
-  redrawGrid() {
-    const { gridCtx, width, height, showGrid, displayZoom } = this;
-    gridCtx.clearRect(0, 0, width, height);
-    if (!showGrid) return;
-
-    const theme = getThemeColors();
-    const step = displayZoom >= 4 ? 1 : displayZoom >= 2 ? 4 : 20;
-    gridCtx.strokeStyle = displayZoom >= 2 ? theme.gridColorZoom : theme.gridColor;
-    gridCtx.lineWidth = 1;
-
-    for (let x = 0; x <= width; x += step) {
-      gridCtx.beginPath();
-      gridCtx.moveTo(x + 0.5, 0);
-      gridCtx.lineTo(x + 0.5, height);
-      gridCtx.stroke();
-    }
-    for (let y = 0; y <= height; y += step) {
-      gridCtx.beginPath();
-      gridCtx.moveTo(0, y + 0.5);
-      gridCtx.lineTo(width, y + 0.5);
-      gridCtx.stroke();
-    }
-  }
-
-  toggleGrid() {
-    this.showGrid = !this.showGrid;
-    this.redrawGrid();
-  }
-
-  clear() {
-    this.fillBackground();
-    this.clearOverlay();
+  getStrokeColor() {
+    return getThemeColors().uiFg;
   }
 
   clearOverlay() {
     this.overlayCtx.clearRect(0, 0, this.width, this.height);
-  }
-
-  applyTheme() {
-    this.redrawGrid();
-    this.notifyStatus();
-  }
-
-  getCanvasPos(e) {
-    const rect = this.mainCanvas.getBoundingClientRect();
-    const x = (e.clientX - rect.left) / this.displayZoom;
-    const y = (e.clientY - rect.top) / this.displayZoom;
-    return {
-      x: Math.max(0, Math.min(this.width - 1, x)),
-      y: Math.max(0, Math.min(this.height - 1, y)),
-    };
   }
 
   snapshot() {
@@ -133,87 +43,70 @@ export class CanvasEngine {
     this.ctx.putImageData(imageData, 0, 0);
   }
 
-  pickColor(x, y) {
-    const px = Math.floor(x);
-    const py = Math.floor(y);
-    const [r, g, b] = getPixel(this.snapshot(), px, py);
-    return rgbaToHex(r, g, b);
+  getCanvasPos(e) {
+    const rect = this.mainCanvas.getBoundingClientRect();
+    const scaleX = this.width / rect.width;
+    const scaleY = this.height / rect.height;
+    const x = (e.clientX - rect.left) * scaleX;
+    const y = (e.clientY - rect.top) * scaleY;
+    return {
+      x: Math.max(0, Math.min(this.width - 1, x)),
+      y: Math.max(0, Math.min(this.height - 1, y)),
+    };
   }
 
-  doFill(x, y, color) {
-    const img = this.snapshot();
-    floodFill(img, x, y, hexToRgba(color));
-    this.ctx.putImageData(img, 0, 0);
+  clearCanvas() {
+    this.fillBackground();
+    this.clearOverlay();
   }
 
-  loadImageFromFile(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const img = new Image();
-        img.onload = () => {
-          this.setSize(img.width, img.height);
-          this.ctx.drawImage(img, 0, 0);
-          resolve();
-        };
-        img.onerror = reject;
-        img.src = reader.result;
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  }
-
-  exportPNG(stamp = true) {
-    const exportCanvas = document.createElement('canvas');
-    exportCanvas.width = this.width;
-    exportCanvas.height = this.height;
-    const ectx = exportCanvas.getContext('2d');
-    const theme = getThemeColors();
-
-    ectx.fillStyle = theme.canvasBg;
-    ectx.fillRect(0, 0, this.width, this.height);
-    ectx.drawImage(this.mainCanvas, 0, 0);
-
-    if (stamp) {
-      const now = new Date();
-      const label = [
-        now.getFullYear(),
-        String(now.getMonth() + 1).padStart(2, '0'),
-        String(now.getDate()).padStart(2, '0'),
-      ].join('-');
-      ectx.font = "9px 'Space Mono', monospace";
-      ectx.fillStyle = theme.exportStamp;
-      ectx.textAlign = 'right';
-      ectx.textBaseline = 'bottom';
-      ectx.fillText(`gerado: ${label}`, this.width - 8, this.height - 8);
-    }
-
-    const link = document.createElement('a');
-    link.download = `votan_paint_${Date.now()}.png`;
-    link.href = exportCanvas.toDataURL('image/png');
-    link.click();
-  }
-
-  drawMarchingAnts(selection, offset) {
-    if (!selection) return;
-    const { x, y, w, h } = selection.bounds;
+  drawCropSelection(x0, y0, x1, y1) {
     const ctx = this.overlayCtx;
-    const theme = getThemeColors();
     ctx.clearRect(0, 0, this.width, this.height);
-    ctx.strokeStyle = theme.selectionStroke;
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 4]);
-    ctx.lineDashOffset = -offset;
+    const x = Math.min(x0, x1);
+    const y = Math.min(y0, y1);
+    const w = Math.abs(x1 - x0);
+    const h = Math.abs(y1 - y0);
+
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.fillRect(0, 0, this.width, this.height);
+    ctx.clearRect(x, y, w, h);
+
+    ctx.strokeStyle = this.getStrokeColor();
+    ctx.lineWidth = 2;
+    ctx.setLineDash([6, 4]);
     ctx.strokeRect(x + 0.5, y + 0.5, w, h);
     ctx.setLineDash([]);
   }
 
-  notifyStatus() {
-    if (this.onStatusUpdate) this.onStatusUpdate();
+  getCropRect(x0, y0, x1, y1) {
+    const x = Math.floor(Math.min(x0, x1));
+    const y = Math.floor(Math.min(y0, y1));
+    const w = Math.max(1, Math.ceil(Math.abs(x1 - x0)));
+    const h = Math.max(1, Math.ceil(Math.abs(y1 - y0)));
+    return { x, y, w, h };
   }
 
-  init(w, h) {
-    this.setSize(w, h);
+  buildCropPreview(rect) {
+    const preview = document.createElement('canvas');
+    preview.width = rect.w;
+    preview.height = rect.h;
+    const pctx = preview.getContext('2d');
+    pctx.drawImage(this.mainCanvas, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
+    return preview;
+  }
+
+  applyCrop(rect) {
+    const img = this.ctx.getImageData(rect.x, rect.y, rect.w, rect.h);
+    this.init(rect.w, rect.h);
+    this.ctx.putImageData(img, 0, 0);
+    this.clearOverlay();
+  }
+
+  exportPNG() {
+    const link = document.createElement('a');
+    link.download = `retrobit_${Date.now()}.png`;
+    link.href = this.mainCanvas.toDataURL('image/png');
+    link.click();
   }
 }

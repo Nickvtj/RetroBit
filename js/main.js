@@ -1,4 +1,4 @@
-import { state } from './state.js';
+import { state, calcCanvasSize } from './state.js';
 import { CanvasEngine } from './engine.js';
 import { History } from './history.js';
 import { createToolHandlers } from './tools.js';
@@ -6,82 +6,28 @@ import { createUI } from './ui.js';
 import { initTheme, toggleTheme } from './theme.js';
 
 const engine = new CanvasEngine({
-  stage: document.getElementById('canvas-stage'),
-  viewport: document.getElementById('viewport'),
-  gridCanvas: document.getElementById('grid-canvas'),
   mainCanvas: document.getElementById('main-canvas'),
   overlayCanvas: document.getElementById('overlay-canvas'),
 });
 
 const history = new History();
+let tools = null;
+let ui = null;
+let pendingCropRect = null;
 
-const ui = createUI({ onMenuAction: handleMenuAction });
-
-const tools = createToolHandlers(engine, history, {
-  updateColorSelection: () => ui.updateColorSelection(),
-  updateStatus: () => ui.updateStatus(engine),
-  updateCoords: (x, y) => ui.updateCoords(x, y),
-  openTextInput: (x, y) => {
-    ui.openTextInput(x, y, engine, (tx, ty, text) => {
-      history.push(engine.snapshot());
-      const ctx = engine.ctx;
-      ctx.font = "12px 'Space Mono', monospace";
-      ctx.fillStyle = state.fgColor;
-      ctx.textBaseline = 'top';
-      text.split('\n').forEach((line, i) => ctx.fillText(line, tx, ty + i * 14));
-    });
-  },
-  showCurveHint: (phase) => ui.showCurveHint(phase),
-});
-
-function handleMenuAction(action) {
-  switch (action) {
-    case 'new':
-      ui.showNewDialog();
-      break;
-    case 'open':
-      ui.openFilePicker();
-      break;
-    case 'save':
-      engine.exportPNG();
-      break;
-    case 'undo':
-      if (history.undo(engine.ctx)) tools.clearSelection();
-      break;
-    case 'redo':
-      if (history.redo(engine.ctx)) tools.clearSelection();
-      break;
-    case 'cut':
-      tools.cut();
-      break;
-    case 'copy':
-      tools.copy();
-      break;
-    case 'paste':
-      tools.paste();
-      break;
-    case 'zoom-1':
-      engine.setZoom(1);
-      ui.updateStatus(engine);
-      break;
-    case 'zoom-2':
-      engine.setZoom(2);
-      ui.updateStatus(engine);
-      break;
-    case 'zoom-4':
-      engine.setZoom(4);
-      ui.updateStatus(engine);
-      break;
-    case 'zoom-8':
-      engine.setZoom(8);
-      ui.updateStatus(engine);
-      break;
-    case 'toggle-grid':
-      engine.toggleGrid();
-      break;
-    case 'toggle-theme':
-      toggleTheme(onThemeChange);
-      break;
+function resizeCanvas() {
+  const { w, h } = calcCanvasSize();
+  if (w === state.canvasWidth && h === state.canvasHeight) return;
+  const snap = engine.snapshot();
+  state.canvasWidth = w;
+  state.canvasHeight = h;
+  engine.init(w, h);
+  if (snap) {
+    const tmp = document.createElement('canvas');
+    tmp.width = snap.width;
+    tmp.height = snap.height;
+    tmp.getContext('2d').putImageData(snap, 0, 0);
+    engine.ctx.drawImage(tmp, 0, 0, w, h);
   }
 }
 
@@ -98,58 +44,75 @@ function bindCanvas() {
   });
 
   canvas.addEventListener('pointerup', (e) => {
-    tools.onPointerUp(e, engine.getCanvasPos(e));
+    const pos = engine.getCanvasPos(e);
+    tools.onPointerUp(e, pos);
     canvas.releasePointerCapture(e.pointerId);
-  });
 
-  canvas.addEventListener('pointerleave', (e) => {
-    if (state.isDrawing) tools.onPointerUp(e, engine.getCanvasPos(e));
-  });
-
-  canvas.addEventListener('dblclick', (e) => {
-    tools.onDblClick(e, engine.getCanvasPos(e));
+    if (state.isCropping) {
+      const rect = tools.getCropRect();
+      if (rect && rect.w >= 10 && rect.h >= 10) {
+        pendingCropRect = rect;
+        ui.showCropModal(engine.buildCropPreview(rect));
+      }
+      tools.cancelCropMode();
+    }
   });
 
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 
-function onThemeChange() {
-  engine.applyTheme();
-  ui.onThemeChanged();
-  ui.updateStatus(engine);
-}
-
 function boot() {
-  ui.init();
-  ui.bindModal({
-    onNewCanvas: (w, h) => {
-      history.clear();
-      tools.stopAnts();
-      state.selection = null;
-      engine.init(w, h);
-      state.canvasWidth = w;
-      state.canvasHeight = h;
-      ui.updateStatus(engine);
+  ui = createUI({
+    onExport: () => engine.exportPNG(),
+
+    onCropStart: () => {
+      tools.startCropMode();
+    },
+
+    onCropCancel: () => {
+      pendingCropRect = null;
+      engine.clearOverlay();
+    },
+
+    onCropApply: () => {
+      if (!pendingCropRect) return;
+      history.push(engine.snapshot());
+      engine.applyCrop(pendingCropRect);
+      pendingCropRect = null;
+    },
+
+    onUndo: () => history.undo(engine.ctx),
+
+    onRedo: () => history.redo(engine.ctx),
+
+    onClear: () => {
+      if (!confirm('OBLITERAR! — limpar tudo?')) return;
+      history.push(engine.snapshot());
+      engine.clearCanvas();
+    },
+
+    onToolChange: () => {
+      if (state.isCropping) tools.cancelCropMode();
+    },
+
+    onToggleTheme: () => {
+      toggleTheme();
+      ui.updateColorUI();
     },
   });
 
-  ui.bindFileInput(async (file) => {
-    history.clear();
-    tools.stopAnts();
-    state.selection = null;
-    await engine.loadImageFromFile(file);
-    state.canvasWidth = engine.width;
-    state.canvasHeight = engine.height;
-    ui.updateStatus(engine);
-  });
+  tools = createToolHandlers(engine, history);
 
-  initTheme(onThemeChange);
+  initTheme();
+  ui.init();
 
-  engine.onStatusUpdate = () => ui.updateStatus(engine);
-  engine.init(state.canvasWidth, state.canvasHeight);
+  const { w, h } = calcCanvasSize();
+  state.canvasWidth = w;
+  state.canvasHeight = h;
+  engine.init(w, h);
   bindCanvas();
-  ui.updateStatus(engine);
-  ui.selectTool('pencil');
+
+  window.addEventListener('resize', resizeCanvas);
 }
 
 boot();

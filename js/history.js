@@ -23,10 +23,8 @@ export class History {
     if (!this.undoStack.length) return false;
     const w = ctx.canvas.width;
     const h = ctx.canvas.height;
-    const current = ctx.getImageData(0, 0, w, h);
-    this.redoStack.push(current);
-    const prev = this.undoStack.pop();
-    ctx.putImageData(prev, 0, 0);
+    this.redoStack.push(ctx.getImageData(0, 0, w, h));
+    ctx.putImageData(this.undoStack.pop(), 0, 0);
     return true;
   }
 
@@ -34,19 +32,9 @@ export class History {
     if (!this.redoStack.length) return false;
     const w = ctx.canvas.width;
     const h = ctx.canvas.height;
-    const current = ctx.getImageData(0, 0, w, h);
-    this.undoStack.push(current);
-    const next = this.redoStack.pop();
-    ctx.putImageData(next, 0, 0);
+    this.undoStack.push(ctx.getImageData(0, 0, w, h));
+    ctx.putImageData(this.redoStack.pop(), 0, 0);
     return true;
-  }
-
-  canUndo() {
-    return this.undoStack.length > 0;
-  }
-
-  canRedo() {
-    return this.redoStack.length > 0;
   }
 
   clear() {

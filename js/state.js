@@ -1,89 +1,81 @@
+const A = 'assets/tools';
+
 export const TOOLS = [
-  { id: 'pencil', label: 'lápis', icon: 'pencil' },
-  { id: 'brush', label: 'pincel', icon: 'brush' },
-  { id: 'airbrush', label: 'spray', icon: 'spray' },
-  { id: 'fill', label: 'balde', icon: 'fill' },
-  { id: 'line', label: 'linha', icon: 'line' },
-  { id: 'rect', label: 'retângulo', icon: 'rect' },
-  { id: 'ellipse', label: 'círculo', icon: 'circle' },
-  { id: 'eraser', label: 'borracha', icon: 'eraser' },
-  { id: 'zoom', label: 'lupa', icon: 'zoom' },
-  { id: 'picker', label: 'conta-gotas', icon: 'picker' },
+  {
+    key: 'pen', tool: 'pen', label: 'caneta', img: `${A}/pen.png`,
+    tips: [{ x: 0, y: 0.18, w: 0.1, h: 0.64, kind: 'light' }],
+  },
+  {
+    key: 'fineliner', tool: 'penFine', label: 'caneta fina', img: `${A}/fineliner.png`,
+    tips: [
+      { x: 0, y: 0.36, w: 0.055, h: 0.28, kind: 'light' },
+      { x: 0, y: 0.44, w: 0.028, h: 0.14, kind: 'ink' },
+    ],
+  },
+  {
+    key: 'pencil', tool: 'pen', label: 'lápis', img: `${A}/pencil.png`,
+    tips: [
+      { x: 0, y: 0.3, w: 0.075, h: 0.4, kind: 'lead' },
+    ],
+  },
+  {
+    key: 'brush', tool: 'brush', label: 'pincel', img: `${A}/brush.png`,
+    tips: [{ x: 0, y: 0.02, w: 0.28, h: 0.96, kind: 'light' }],
+  },
+  {
+    key: 'marker', tool: 'marker', label: 'marcador', img: `${A}/marker.png`,
+    tips: [{ x: 0, y: 0.26, w: 0.1, h: 0.52, kind: 'ink' }],
+  },
+  {
+    key: 'spray', tool: 'spray', label: 'spray', img: `${A}/spray.png`,
+    tips: [
+      { x: 0, y: 0, w: 0.2, h: 1, kind: 'ink' },
+      { x: 0.18, y: 0.24, w: 0.11, h: 0.5, kind: 'light' },
+    ],
+  },
+  { key: 'eraser', tool: 'eraser', label: 'borracha', img: `${A}/eraser.png` },
 ];
 
-/** Ícones de linha ultra-minimalistas */
-export const TOOL_SVGS = {
-  pencil: '<path d="M2.5 12.5L5.5 3.5l7-1.5-1.5 7-6.5 3.5z"/><line x1="5.5" y1="10" x2="7.5" y2="12"/>',
-  brush: '<circle cx="8" cy="6.5" r="2.5"/><line x1="8" y1="9" x2="8" y2="13"/>',
-  spray: '<circle cx="4" cy="5" r="0.7"/><circle cx="8" cy="4" r="0.7"/><circle cx="11" cy="7" r="0.7"/><circle cx="6" cy="9" r="0.7"/><circle cx="10" cy="11" r="0.7"/>',
-  fill: '<rect x="3" y="3" width="10" height="10"/><path d="M5.5 10l2-3.5 1.5 2.5 2-3"/>',
-  line: '<line x1="3" y1="13" x2="13" y2="3"/>',
-  rect: '<rect x="3.5" y="4.5" width="9" height="8"/>',
-  circle: '<ellipse cx="8" cy="8.5" rx="4.5" ry="4"/>',
-  eraser: '<path d="M2.5 9.5l5-5 5.5 5.5-5 5z"/><line x1="7.5" y1="10" x2="13.5" y2="10"/>',
-  zoom: '<circle cx="7" cy="7" r="3.5"/><line x1="9.5" y1="9.5" x2="13" y2="13"/>',
-  picker: '<path d="M2 13l3.5-8.5 3.5 1 1 3.5z"/><circle cx="11.5" cy="4.5" r="1.2"/>',
-};
-
-export const DRAW_PALETTE = [
-  '#000000', '#ffffff', '#888888', '#00ff66', '#00c8ff', '#ff003c',
-  '#0080ff', '#ffff00', '#ff00ff', '#666666', '#ffb000', '#00aa44',
-];
-
-export const THEMES = {
-  dark: {
-    canvasBg: '#000000',
-    defaultColor: '#ffffff',
-    eraserColor: '#000000',
-    gridColor: '#1a1a1a',
-    gridColorZoom: '#1a1a1a',
-    selectionStroke: '#f2f2f2',
-    exportStamp: 'rgba(0, 255, 102, 0.55)',
-  },
-  light: {
-    canvasBg: '#ffffff',
-    defaultColor: '#000000',
-    eraserColor: '#ffffff',
-    gridColor: '#e0e0e0',
-    gridColorZoom: '#e0e0e0',
-    selectionStroke: '#0a0a0a',
-    exportStamp: 'rgba(0, 170, 68, 0.55)',
-  },
-};
+export const BRUSH_SIZES = [1, 3, 6, 10, 16];
 
 export const state = {
-  theme: 'dark',
-  tool: 'pencil',
-  fgColor: '#ffffff',
-  bgColor: '#000000',
-  brushTip: 'round',
+  theme: 'light',
+  tool: 'pen',
+  activeKey: 'pen',
+  color: '#000000',
   brushSize: 3,
-  shapeMode: 'outline',
-  zoomLevel: 8,
-  displayZoom: 1,
-  showGrid: true,
-  canvasWidth: 800,
-  canvasHeight: 600,
+  brushSizeIndex: 1,
   isDrawing: false,
-  startX: 0,
-  startY: 0,
   lastX: 0,
   lastY: 0,
-  selection: null,
-  clipboard: null,
-  curvePhase: 0,
-  curvePoints: [],
-  polygonPoints: [],
-  antsOffset: 0,
+  wiggleSeed: 0,
+  canvasWidth: 1024,
+  canvasHeight: 768,
+  cropRect: null,
+  isCropping: false,
+  cropStart: null,
 };
 
-export function getThemeColors() {
-  return THEMES[state.theme];
+export function resetDrawing() {
+  state.isDrawing = false;
+  state.wiggleSeed = 0;
 }
 
-export function resetInteraction() {
-  state.isDrawing = false;
-  state.curvePhase = 0;
-  state.curvePoints = [];
-  state.polygonPoints = [];
+export function calcCanvasSize() {
+  const railW = 224;
+  const menubarH = 30;
+  const dockH = 116;
+  const pad = 16;
+  const maxW = window.innerWidth - railW - pad * 2;
+  const maxH = window.innerHeight - menubarH - dockH - pad * 2;
+  let w = maxW;
+  let h = Math.floor(w * 0.75);
+  if (h > maxH) {
+    h = maxH;
+    w = Math.floor(h / 0.75);
+  }
+  return {
+    w: Math.max(640, Math.floor(w)),
+    h: Math.max(480, Math.floor(h)),
+  };
 }
