@@ -1,3 +1,14 @@
+/**
+ * Carregador dos sprites das ferramentas (arte PNG preto/branco, fundo
+ * transparente, ponta à esquerda).
+ *
+ * Para o utilizador saber QUE COR cada ferramenta carrega, o CORPO (os pixels
+ * brancos) é pintado com a cor escolhida. Usamos "colorize" — multiplicamos a
+ * cor pela luminosidade original — para preservar a forma e o sombreado da arte
+ * em vez de a achatar. O contorno preto mantém-se (branco no tema escuro) para
+ * a silhueta continuar a ler-se. A borracha não é tingida.
+ */
+
 const imageCache = new Map();
 const tintedCache = new Map();
 
@@ -13,129 +24,14 @@ function loadImage(src) {
   return p;
 }
 
-function parseColor(hex) {
-  const n = parseInt(hex.slice(1), 16);
+function parseHex(hex) {
+  let h = hex.replace('#', '');
+  if (h.length === 3) h = h.split('').map((c) => c + c).join('');
+  const n = parseInt(h, 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
 
-function luminance(r, g, b) {
-  return (r + g + b) / 3;
-}
-
-function isOutline(lum, theme) {
-  return theme === 'dark' ? lum > 195 : lum < 48;
-}
-
-function isFill(lum, theme) {
-  return theme === 'dark' ? lum < 105 : lum > 188;
-}
-
-function shouldPaint(r, g, b, a, kind, theme) {
-  if (a < 8) return false;
-  const lum = luminance(r, g, b);
-  if (kind === 'any') {
-    if (theme === 'dark') return lum < 155 || lum > 165;
-    return lum < 115 || lum > 165;
-  }
-  if (kind === 'lead') {
-    return theme === 'dark' ? lum > 215 : lum < 42;
-  }
-  if (kind === 'ink') {
-    return theme === 'dark' ? lum > 175 : lum < 90;
-  }
-  // kind 'light' — só o miolo (preenchimento), preservando as linhas/contorno.
-  // No tema escuro o preenchimento branco vira preto após a inversão (lum baixo),
-  // e as linhas viram brancas (lum alto) — por isso não pintamos lum alto aqui.
-  if (theme === 'dark') return lum < 110;
-  return lum > 185;
-}
-
-function paintRegion(ctx, region, color, w, h, theme) {
-  const [r, g, b] = parseColor(color);
-  const rx = Math.floor(region.x * w);
-  const ry = Math.floor(region.y * h);
-  const rw = Math.max(1, Math.ceil(region.w * w));
-  const rh = Math.max(1, Math.ceil(region.h * h));
-  const data = ctx.getImageData(rx, ry, rw, rh);
-
-  for (let i = 0; i < data.data.length; i += 4) {
-    const pr = data.data[i];
-    const pg = data.data[i + 1];
-    const pb = data.data[i + 2];
-    const pa = data.data[i + 3];
-    if (shouldPaint(pr, pg, pb, pa, region.kind, theme)) {
-      data.data[i] = r;
-      data.data[i + 1] = g;
-      data.data[i + 2] = b;
-      data.data[i + 3] = 255;
-    }
-  }
-
-  ctx.putImageData(data, rx, ry);
-}
-
-/** Degradê suave na madeira afiada — cor mais forte na ponta, some em direção ao corpo. */
-function paintWashRegion(ctx, region, color, w, h, theme) {
-  const [cr, cg, cb] = parseColor(color);
-  const strength = region.strength ?? 0.38;
-  const rx = Math.floor(region.x * w);
-  const ry = Math.floor(region.y * h);
-  const rw = Math.max(1, Math.ceil(region.w * w));
-  const rh = Math.max(1, Math.ceil(region.h * h));
-  const data = ctx.getImageData(rx, ry, rw, rh);
-
-  for (let ly = 0; ly < rh; ly++) {
-    for (let lx = 0; lx < rw; lx++) {
-      const i = (ly * rw + lx) * 4;
-      const pr = data.data[i];
-      const pg = data.data[i + 1];
-      const pb = data.data[i + 2];
-      const pa = data.data[i + 3];
-      if (pa < 8) continue;
-
-      const lum = luminance(pr, pg, pb);
-      if (!isFill(lum, theme) || isOutline(lum, theme)) continue;
-
-      const nx = lx / rw;
-      const ny = ly / rh;
-      const dist = Math.hypot(nx * 1.15, (ny - 0.5) * 0.55);
-      const fade = Math.pow(Math.max(0, 1 - dist), 1.7) * strength;
-      if (fade < 0.015) continue;
-
-      data.data[i] = Math.round(pr * (1 - fade) + cr * fade);
-      data.data[i + 1] = Math.round(pg * (1 - fade) + cg * fade);
-      data.data[i + 2] = Math.round(pb * (1 - fade) + cb * fade);
-    }
-  }
-
-  ctx.putImageData(data, rx, ry);
-}
-
-function invertImage(ctx, w, h) {
-  const data = ctx.getImageData(0, 0, w, h);
-  for (let i = 0; i < data.data.length; i += 4) {
-    if (data.data[i + 3] === 0) continue;
-    data.data[i] = 255 - data.data[i];
-    data.data[i + 1] = 255 - data.data[i + 1];
-    data.data[i + 2] = 255 - data.data[i + 2];
-  }
-  ctx.putImageData(data, 0, 0);
-}
-
-function applyTips(ctx, tool, color, w, h, theme) {
-  for (const region of tool.tips) {
-    if (region.kind === 'wash') {
-      paintWashRegion(ctx, region, color, w, h, theme);
-    } else {
-      paintRegion(ctx, region, color, w, h, theme);
-    }
-  }
-}
-
-/** Pinta pontas/grafite com a cor escolhida. */
 export async function getTintedToolUrl(tool, color, theme = 'light') {
-  if (!tool.tips?.length || tool.tool === 'eraser') return tool.img;
-
   const key = `${tool.key}:${color}:${theme}`;
   if (tintedCache.has(key)) return tintedCache.get(key);
 
@@ -144,14 +40,44 @@ export async function getTintedToolUrl(tool, color, theme = 'light') {
   canvas.width = img.naturalWidth;
   canvas.height = img.naturalHeight;
   const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
   ctx.drawImage(img, 0, 0);
 
-  if (theme === 'dark') {
-    invertImage(ctx, canvas.width, canvas.height);
-    applyTips(ctx, tool, color, canvas.width, canvas.height, 'dark');
-  } else {
-    applyTips(ctx, tool, color, canvas.width, canvas.height, 'light');
+  const [cr, cg, cb] = parseHex(color);
+  const dark = theme === 'dark';
+  const isEraser = tool.key === 'eraser' || tool.tool === 'eraser';
+  const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const px = data.data;
+
+  for (let i = 0; i < px.length; i += 4) {
+    if (px[i + 3] < 10) continue;
+    const r = px[i];
+    const g = px[i + 1];
+    const b = px[i + 2];
+    const mn = Math.min(r, g, b);
+    const mx = Math.max(r, g, b);
+    const isWhite = mn > 205 && (mx - mn) < 24;   // SÓ o branco puro
+    const isBlack = mx < 64;                       // contorno
+
+    if (isEraser) {                                // borracha não recebe cor
+      if (dark && isWhite) { px[i] = px[i + 1] = px[i + 2] = 0; }
+      else if (dark && isBlack) { px[i] = px[i + 1] = px[i + 2] = 255; }
+      continue;
+    }
+
+    if (isWhite) {
+      px[i] = cr; px[i + 1] = cg; px[i + 2] = cb;  // branco → cor escolhida (chapado)
+    } else if (isBlack) {
+      if (dark) { px[i] = px[i + 1] = px[i + 2] = 255; } // contorno → branco no escuro
+    } else if (dark) {
+      // material colorido (madeira, virola, dourado): clareia p/ ser visível no preto
+      px[i] = Math.round(r + (255 - r) * 0.45);
+      px[i + 1] = Math.round(g + (255 - g) * 0.45);
+      px[i + 2] = Math.round(b + (255 - b) * 0.45);
+    }
+    // no tema claro os materiais coloridos ficam intactos
   }
+  ctx.putImageData(data, 0, 0);
 
   const url = canvas.toDataURL('image/png');
   tintedCache.set(key, url);

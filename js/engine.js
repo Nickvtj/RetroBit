@@ -35,12 +35,21 @@ export class CanvasEngine {
     this.overlayCtx.clearRect(0, 0, this.width, this.height);
   }
 
-  snapshot() {
-    return this.ctx.getImageData(0, 0, this.width, this.height);
-  }
-
-  restore(imageData) {
-    this.ctx.putImageData(imageData, 0, 0);
+  /** Anel do cursor (dois traços preto+branco para ser visível em qualquer fundo). */
+  drawCursorRing(x, y, r) {
+    const ctx = this.overlayCtx;
+    ctx.clearRect(0, 0, this.width, this.height);
+    ctx.save();
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+    ctx.beginPath();
+    ctx.arc(x, y, r + 1, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
   }
 
   getCanvasPos(e) {
@@ -53,11 +62,6 @@ export class CanvasEngine {
       x: Math.max(0, Math.min(this.width - 1, x)),
       y: Math.max(0, Math.min(this.height - 1, y)),
     };
-  }
-
-  clearCanvas() {
-    this.fillBackground();
-    this.clearOverlay();
   }
 
   drawCropSelection(x0, y0, x1, y1) {
@@ -87,6 +91,7 @@ export class CanvasEngine {
     return { x, y, w, h };
   }
 
+  /** Pré-visualização do crop: lê os pixels do frame atual do canvas. */
   buildCropPreview(rect) {
     const preview = document.createElement('canvas');
     preview.width = rect.w;
@@ -96,17 +101,55 @@ export class CanvasEngine {
     return preview;
   }
 
-  applyCrop(rect) {
-    const img = this.ctx.getImageData(rect.x, rect.y, rect.w, rect.h);
-    this.init(rect.w, rect.h);
-    this.ctx.putImageData(img, 0, 0);
-    this.clearOverlay();
-  }
-
   exportPNG() {
     const link = document.createElement('a');
     link.download = `retrobit_${Date.now()}.png`;
     link.href = this.mainCanvas.toDataURL('image/png');
     link.click();
+  }
+
+  /**
+   * Explosão pixelada da bomba, desenhada no overlay (independente do loop
+   * de 12fps para ser bem fluida). Auto-limpa ao fim de ~0.5s.
+   */
+  runExplosion(cx, cy) {
+    const ctx = this.overlayCtx;
+    const W = this.width;
+    const H = this.height;
+    const fg = getThemeColors().uiFg;
+    const N = 110;
+    const parts = [];
+    for (let i = 0; i < N; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 2 + Math.random() * 8;
+      parts.push({
+        x: cx,
+        y: cy,
+        vx: Math.cos(a) * sp,
+        vy: Math.sin(a) * sp,
+        sz: 2 + ((Math.random() * 3) | 0),
+        c: Math.random() < 0.4 ? '#3ff0ff' : fg,
+      });
+    }
+
+    const start = performance.now();
+    const duration = 500;
+    const step = (now) => {
+      const t = (now - start) / duration;
+      ctx.clearRect(0, 0, W, H);
+      if (t >= 1) return; // frame final já limpo
+      ctx.globalAlpha = 1 - t;
+      for (const p of parts) {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.35; // gravidade
+        p.vx *= 0.98;
+        ctx.fillStyle = p.c;
+        ctx.fillRect(p.x | 0, p.y | 0, p.sz, p.sz);
+      }
+      ctx.globalAlpha = 1;
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   }
 }

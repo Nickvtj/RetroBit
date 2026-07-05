@@ -10,6 +10,7 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <!-- ── Splash ─────────────────────────────────────────── -->
   <div id="splash" class="splash">
     <div class="win splash__win">
       <div class="win__bar"><span>RetroBit</span></div>
@@ -22,81 +23,104 @@
     </div>
   </div>
 
+  <!-- ── Galeria de projetos ────────────────────────────── -->
+  <div id="gallery" class="gallery" hidden>
+    <header class="gallery__bar"><span>• RetroBit •</span></header>
+    <div class="gallery__grid" id="gallery-grid"></div>
+  </div>
+
+  <!-- ── Tela de desenho ────────────────────────────────── -->
   <div id="app" class="app" hidden>
-    <header class="menubar">
-      <div class="menubar__brand">RetroBit</div>
-      <nav class="menubar__items">
-        <button type="button" class="menubar__link">Arquivo</button>
-        <button type="button" class="menubar__link">Edição</button>
-        <div class="menubar__drop-wrap">
-          <button type="button" class="menubar__link" data-menu-trigger="view">Exibir</button>
-          <div class="menubar__drop" id="menu-view" hidden>
-            <button type="button" id="menu-theme-toggle">modo escuro</button>
-          </div>
-        </div>
-      </nav>
-      <div class="menubar__dither" aria-hidden="true"></div>
-    </header>
+    <button type="button" class="back-btn" id="btn-back">◀ voltar</button>
 
-    <div class="stage">
-      <section class="canvas-zone">
-        <div class="canvas-frame">
-          <canvas id="main-canvas" aria-label="Área de desenho"></canvas>
-          <canvas id="overlay-canvas" aria-hidden="true"></canvas>
-        </div>
-      </section>
+    <section class="canvas-zone">
+      <div class="canvas-frame" id="canvas-frame">
+        <canvas id="main-canvas" aria-label="Área de desenho"></canvas>
+        <canvas id="overlay-canvas" aria-hidden="true"></canvas>
+      </div>
+    </section>
 
-      <aside class="tool-rail">
-        <nav class="tool-rail__stack" id="tool-list"></nav>
-
-        <label class="color-pick" title="Escolher cor">
-          <span class="color-pick__frame">
-            <span class="color-pick__chip" id="color-tip"></span>
-            <span class="color-pick__label">cor</span>
-          </span>
-          <input type="color" id="color-input" value="#000000">
-        </label>
-      </aside>
-    </div>
+    <aside class="tool-rail">
+      <nav class="tool-rail__stack" id="tool-list"></nav>
+      <button type="button" class="obliterate" id="btn-clear" title="obliterar tudo"></button>
+    </aside>
 
     <footer class="dock">
-      <button type="button" class="scribble scribble--export" id="btn-export" title="exportar">EXPORT</button>
-
-      <div class="dock__group">
-        <span class="dock__note">opções</span>
-        <div class="dock__group-row">
-          <button type="button" class="scribble" id="btn-crop" title="recortar">CROP</button>
-          <button type="button" class="scribble" id="btn-undo" title="desfazer">OOPS!</button>
-          <button type="button" class="scribble scribble--sm" id="btn-redo" title="refazer">REDO</button>
+      <button type="button" class="paper-btn" id="btn-save">Salvar</button>
+      <button type="button" class="paper-btn" id="btn-export-gif">Exportar</button>
+      <button type="button" class="paper-btn" id="btn-background">Background</button>
+      <button type="button" class="paper-btn" id="btn-crop">Crop</button>
+      <button type="button" class="paper-btn paper-btn--icon" id="btn-undo" title="desfazer (Ctrl+Z)">↶</button>
+      <button type="button" class="paper-btn paper-btn--icon" id="btn-redo" title="refazer (Ctrl+Y)">↷</button>
+      <div class="dock__size">
+        <span class="dock__size-label">tamanho</span>
+        <div class="stepper">
+          <button type="button" class="stepper__btn" id="dock-size-down" aria-label="Diminuir">&#8249;</button>
+          <span class="stepper__stage"><span class="stepper__dot" id="dock-size-dot"></span></span>
+          <button type="button" class="stepper__btn" id="dock-size-up" aria-label="Aumentar">&#8250;</button>
         </div>
       </div>
-
-      <div class="dock__size-wrap">
-        <span class="dock__note">tamanho do traço</span>
-        <div class="dock__size">
-          <button type="button" class="dock__size-btn" id="btn-size-down" aria-label="Diminuir">&#9664;</button>
-          <span class="dock__size-stage"><span class="dock__size-dot" id="size-preview"></span></span>
-          <button type="button" class="dock__size-btn" id="btn-size-up" aria-label="Aumentar">&#9654;</button>
-        </div>
-      </div>
-
-      <button type="button" class="scribble scribble--obliterate" id="btn-clear" title="limpar tudo">OBLITERAR!</button>
+      <button type="button" class="paper-btn paper-btn--icon dock__mute" id="btn-mute" title="som">♪</button>
     </footer>
   </div>
 
-  <div class="modal-backdrop" id="crop-modal" hidden>
-    <div class="win modal">
-      <div class="win__bar"><span>recortar</span></div>
-      <div class="modal__body">
-        <p>pré-visualização:</p>
-        <canvas id="crop-preview"></canvas>
-        <div class="modal__acts">
-          <button type="button" id="btn-crop-cancel">cancelar</button>
-          <button type="button" id="btn-crop-apply">aplicar</button>
+  <!-- ── Modal: cor + opacidade da ferramenta ───────────── -->
+  <div class="modal-backdrop" id="color-modal" hidden>
+    <div class="win color-win">
+      <div class="win__bar">
+        <span id="color-win-title">escolher cor</span>
+        <button type="button" class="win__close" id="color-close" aria-label="Fechar">×</button>
+      </div>
+      <div class="color-win__body">
+        <div class="color-grid" id="color-grid"></div>
+        <div class="color-win__ctrls">
+          <div class="ctrl-row">
+            <span class="ctrl-row__label">opacidade</span>
+            <div class="stepper">
+              <button type="button" class="stepper__btn" id="modal-op-down" aria-label="Menos">&#9664;</button>
+              <span class="stepper__stage"><span class="stepper__val" id="modal-op-val">100%</span></span>
+              <button type="button" class="stepper__btn" id="modal-op-up" aria-label="Mais">&#9654;</button>
+            </div>
+          </div>
+        </div>
+        <div class="color-win__foot">
+          <span class="color-win__chip" id="color-current"></span>
+          <input type="text" class="color-win__hex" id="color-hex" maxlength="7" spellcheck="false">
         </div>
       </div>
     </div>
   </div>
+
+  <!-- ── Modal: cor do fundo ────────────────────────────── -->
+  <div class="modal-backdrop" id="bg-modal" hidden>
+    <div class="win color-win">
+      <div class="win__bar">
+        <span>cor do fundo</span>
+        <button type="button" class="win__close" id="bg-close" aria-label="Fechar">×</button>
+      </div>
+      <div class="color-win__body">
+        <div class="color-grid" id="bg-grid"></div>
+        <div class="color-win__foot">
+          <span class="color-win__chip" id="bg-current"></span>
+          <input type="text" class="color-win__hex" id="bg-hex" maxlength="7" spellcheck="false">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: tamanho da tela (Crop) ──────────────────── -->
+  <div class="modal-backdrop" id="res-modal" hidden>
+    <div class="win res-win">
+      <div class="win__bar">
+        <span>tamanho da tela</span>
+        <button type="button" class="win__close" id="res-close" aria-label="Fechar">×</button>
+      </div>
+      <div class="res-win__body" id="res-list"></div>
+    </div>
+  </div>
+
+  <!-- Transição íris pixelada (canvas de baixa resolução ampliado) -->
+  <canvas id="wipe" class="wipe" hidden></canvas>
 
   <script type="module" src="js/main.js"></script>
 </body>

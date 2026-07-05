@@ -1,85 +1,40 @@
 /**
- * Traço tremido (wiggly) — base para todas as ferramentas.
+ * Base geométrica do traço tremido (wiggly).
+ *
+ * Chave para a fluidez: o "tremor" é DETERMINÍSTICO — dado (x, y, frame)
+ * devolve sempre o mesmo offset. Assim o renderer pode repintar a 60fps
+ * (input fluido) enquanto o `frame` só muda a ~12fps (tremor lento e retro).
+ * Nada de Math.random por frame, que faria o traço "ferver".
  */
 
-export function wiggleOffset(x, y, t, amplitude) {
-  const a = amplitude ?? 3;
-  return {
-    x: x + Math.sin(t * 17.3 + y * 0.21) * a + Math.cos(t * 11.7 + x * 0.09) * a * 0.6,
-    y: y + Math.cos(t * 13.9 + x * 0.16) * a + Math.sin(t * 9.1 + y * 0.11) * a * 0.6,
-  };
+/** Pseudo-aleatório determinístico em [-1, 1] a partir de (x, y, frame). */
+export function wob(x, y, frame) {
+  const s = Math.sin(x * 12.9898 + y * 78.233 + frame * 0.7) * 43758.5453;
+  return (s - Math.floor(s)) * 2 - 1;
 }
 
-export function interpolateWigglyLine(ctx, x0, y0, x1, y1, opts = {}) {
-  const {
-    color = '#000',
-    width = 2,
-    amplitude = 2,
-    alpha = 1,
-    seed = 0,
-    cap = 'round',
-    composite = 'source-over',
-  } = opts;
-
-  const dist = Math.hypot(x1 - x0, y1 - y0);
-  const steps = Math.max(2, Math.ceil(dist / 2));
-
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
-  ctx.lineCap = cap;
-  ctx.lineJoin = 'round';
-  ctx.globalAlpha = alpha;
-  ctx.globalCompositeOperation = composite;
-  ctx.beginPath();
-
-  for (let i = 0; i <= steps; i++) {
-    const t = seed + i * 0.4;
-    const u = i / steps;
-    const bx = x0 + (x1 - x0) * u;
-    const by = y0 + (y1 - y0) * u;
-    const w = wiggleOffset(bx, by, t, amplitude);
-    if (i === 0) ctx.moveTo(w.x, w.y);
-    else ctx.lineTo(w.x, w.y);
+/**
+ * Densifica um path: insere pontos intermédios de forma a que nunca haja
+ * mais do que `step` px entre amostras. Sem isto, traços rápidos ficariam
+ * com segmentos retos longos e o wiggle não teria "ondulação".
+ */
+export function densify(points, step = 3) {
+  if (points.length < 2) return points.slice();
+  const out = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const a = points[i];
+    const b = points[i + 1];
+    const dist = Math.hypot(b.x - a.x, b.y - a.y);
+    const n = Math.max(1, Math.round(dist / step));
+    for (let s = 0; s < n; s++) {
+      const u = s / n;
+      out.push({
+        x: a.x + (b.x - a.x) * u,
+        y: a.y + (b.y - a.y) * u,
+        p: (a.p ?? 0.5) + ((b.p ?? 0.5) - (a.p ?? 0.5)) * u,
+      });
+    }
   }
-
-  ctx.stroke();
-  ctx.restore();
-}
-
-export function wigglySpray(ctx, x, y, opts = {}) {
-  const {
-    color = '#000',
-    radius = 8,
-    density = 14,
-    amplitude = 3,
-    alpha = 0.35,
-    seed = 0,
-  } = opts;
-
-  ctx.save();
-  ctx.fillStyle = color;
-  ctx.globalAlpha = alpha;
-
-  for (let i = 0; i < density; i++) {
-    const angle = Math.random() * Math.PI * 2;
-    const dist = Math.random() * radius;
-    const bx = x + Math.cos(angle) * dist;
-    const by = y + Math.sin(angle) * dist;
-    const w = wiggleOffset(bx, by, seed + i * 0.7, amplitude * 0.4);
-    ctx.fillRect(Math.floor(w.x), Math.floor(w.y), 1, 1);
-  }
-
-  ctx.restore();
-}
-
-export function wigglyDot(ctx, x, y, opts = {}) {
-  const { color = '#000', size = 3, amplitude = 1.5, seed = 0 } = opts;
-  const w = wiggleOffset(x, y, seed, amplitude);
-  ctx.save();
-  ctx.fillStyle = color;
-  ctx.beginPath();
-  ctx.arc(w.x, w.y, size / 2, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.restore();
+  out.push(points[points.length - 1]);
+  return out;
 }

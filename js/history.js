@@ -1,40 +1,38 @@
-function cloneImageData(imageData) {
-  return new ImageData(
-    new Uint8ClampedArray(imageData.data),
-    imageData.width,
-    imageData.height
-  );
-}
-
+/**
+ * Histórico baseado em PATHS (não em ImageData).
+ *
+ * Cada entrada é um "snapshot" leve: uma cópia rasa do array de paths
+ * (os objetos-path são partilhados por referência — cópia barata) mais as
+ * dimensões do canvas nesse momento (para o crop poder ser desfeito).
+ *
+ * O formato de entrada é: { paths: Path[], w: number, h: number }
+ */
 export class History {
-  constructor(max = 40) {
+  constructor(max = 80) {
     this.undoStack = [];
     this.redoStack = [];
     this.max = max;
   }
 
-  push(imageData) {
-    this.undoStack.push(cloneImageData(imageData));
+  /** Regista o estado ANTES de uma alteração. Limpa o stack de redo. */
+  record(entry) {
+    this.undoStack.push(entry);
     if (this.undoStack.length > this.max) this.undoStack.shift();
     this.redoStack = [];
   }
 
-  undo(ctx) {
-    if (!this.undoStack.length) return false;
-    const w = ctx.canvas.width;
-    const h = ctx.canvas.height;
-    this.redoStack.push(ctx.getImageData(0, 0, w, h));
-    ctx.putImageData(this.undoStack.pop(), 0, 0);
-    return true;
+  /** Devolve a entrada a restaurar (ou null). `current` vai para o redo. */
+  undo(current) {
+    if (!this.undoStack.length) return null;
+    this.redoStack.push(current);
+    return this.undoStack.pop();
   }
 
-  redo(ctx) {
-    if (!this.redoStack.length) return false;
-    const w = ctx.canvas.width;
-    const h = ctx.canvas.height;
-    this.undoStack.push(ctx.getImageData(0, 0, w, h));
-    ctx.putImageData(this.redoStack.pop(), 0, 0);
-    return true;
+  /** Devolve a entrada a restaurar (ou null). `current` volta para o undo. */
+  redo(current) {
+    if (!this.redoStack.length) return null;
+    this.undoStack.push(current);
+    return this.redoStack.pop();
   }
 
   clear() {
