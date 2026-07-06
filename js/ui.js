@@ -1,7 +1,7 @@
-import { TOOLS, BRUSH_SIZES, OPACITIES, RESOLUTIONS, state } from './state.js';
+import { TOOLS, SHAPES, BRUSH_SIZES, OPACITIES, RESOLUTIONS, state } from './state.js';
 import { getTintedToolUrl } from './tool-art.js';
-import { playSwitch, playStart, resumeAudio, setMuted, isMuted } from './audio.js';
-import { listProjects, deleteProject } from './projects.js';
+import { playSwitch, playStart, resumeAudio } from './audio.js';
+import { listProjects, deleteProject, renameProject, getProject } from './projects.js';
 
 /* ── Paleta partilhada (cor da ferramenta e cor do fundo) ── */
 function hslToHex(h, s, l) {
@@ -35,16 +35,26 @@ export function createUI(callbacks) {
     btnClear: $('btn-clear'),
     btnSave: $('btn-save'), btnExportGif: $('btn-export-gif'),
     btnBackground: $('btn-background'), btnCrop: $('btn-crop'),
-    btnUndo: $('btn-undo'), btnRedo: $('btn-redo'), btnMute: $('btn-mute'),
-    dockSizeDown: $('dock-size-down'), dockSizeUp: $('dock-size-up'), dockSizeDot: $('dock-size-dot'),
+    btnUndo: $('btn-undo'), btnRedo: $('btn-redo'),
+    btnMirrorH: $('btn-mirror-h'), btnMirrorV: $('btn-mirror-v'),
+    btnShapeRect: $('btn-shape-rect'), btnShapeEllipse: $('btn-shape-ellipse'), btnShapeLine: $('btn-shape-line'),
     colorModal: $('color-modal'), colorGrid: $('color-grid'), colorTitle: $('color-win-title'),
     colorCurrent: $('color-current'), colorHex: $('color-hex'), colorClose: $('color-close'),
     mOpDown: $('modal-op-down'), mOpUp: $('modal-op-up'), mOpVal: $('modal-op-val'),
+    mSizeDown: $('modal-size-down'), mSizeUp: $('modal-size-up'), mSizeDot: $('modal-size-dot'),
     bgModal: $('bg-modal'), bgGrid: $('bg-grid'), bgCurrent: $('bg-current'),
     bgHex: $('bg-hex'), bgClose: $('bg-close'),
     resModal: $('res-modal'), resList: $('res-list'), resClose: $('res-close'),
+    projModal: $('proj-modal'), projTitle: $('proj-win-title'), projClose: $('proj-close'),
+    projRename: $('proj-rename'), projDelete: $('proj-delete'),
+    renameModal: $('rename-modal'), renameInput: $('rename-input'), renameClose: $('rename-close'),
+    renameCancel: $('rename-cancel'), renameConfirm: $('rename-confirm'),
+    delModal: $('del-modal'), delName: $('del-name'), delClose: $('del-close'),
+    delCancel: $('del-cancel'), delConfirm: $('del-confirm'),
   };
   let colorTargetKey = null;
+  let colorTargetShapeKey = null;
+  let menuTargetId = null;
 
   /* ── Transição íris pixelada ────────────────────────────────
      Desenha um círculo numa grelha de baixa resolução (~84px) que o CSS amplia
@@ -101,7 +111,7 @@ export function createUI(callbacks) {
       tiles.push(`
         <div class="tile" data-open="${p.id}">
           <div class="tile__thumb">${thumb}
-            <button type="button" class="tile__menu" data-del="${p.id}" title="apagar">×</button>
+            <button type="button" class="tile__menu" data-menu="${p.id}" title="renomear ou excluir">✎</button>
           </div>
           <span class="tile__name">${p.name}</span>
         </div>`);
@@ -115,19 +125,55 @@ export function createUI(callbacks) {
     });
     els.galleryGrid.querySelectorAll('[data-open]').forEach((tile) => {
       tile.addEventListener('click', (e) => {
-        if (e.target.closest('[data-del]')) return;
+        if (e.target.closest('[data-menu]')) return;
         resumeAudio();
         const id = tile.dataset.open;
         iris(() => { callbacks.onOpenProject?.(id); showOnly(els.app); callbacks.onAppReady?.(); });
         playStart();
       });
     });
-    els.galleryGrid.querySelectorAll('[data-del]').forEach((btn) => {
+    els.galleryGrid.querySelectorAll('[data-menu]').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (confirm('Apagar este projeto?')) { deleteProject(btn.dataset.del); renderGallery(); }
+        openProjMenu(btn.dataset.menu);
       });
     });
+  }
+
+  /* ── Menu / renomear / apagar projeto ───────────────────── */
+  function openProjMenu(id) {
+    const p = getProject(id);
+    if (!p) return;
+    menuTargetId = id;
+    els.projTitle.textContent = p.name;
+    els.projModal.hidden = false;
+  }
+  function openRename() {
+    const p = getProject(menuTargetId);
+    if (!p) return;
+    els.projModal.hidden = true;
+    els.renameInput.value = p.name;
+    els.renameModal.hidden = false;
+    els.renameInput.focus();
+    els.renameInput.select();
+  }
+  function confirmRename() {
+    const v = els.renameInput.value.trim();
+    if (v) renameProject(menuTargetId, v);
+    els.renameModal.hidden = true;
+    renderGallery();
+  }
+  function openDelete() {
+    const p = getProject(menuTargetId);
+    if (!p) return;
+    els.projModal.hidden = true;
+    els.delName.textContent = p.name;
+    els.delModal.hidden = false;
+  }
+  function confirmDelete() {
+    deleteProject(menuTargetId);
+    els.delModal.hidden = true;
+    renderGallery();
   }
 
   /* ── Rail de ferramentas ────────────────────────────────── */
@@ -152,6 +198,10 @@ export function createUI(callbacks) {
   }
 
   function syncActiveSettings() {
+    if (state.activeShapeKey) {
+      syncShapeSettings();
+      return;
+    }
     const k = state.activeKey;
     state.color = state.toolColors[k];
     state.brushSizeIndex = state.toolSizes[k];
@@ -159,20 +209,63 @@ export function createUI(callbacks) {
     state.opacity = state.toolOpacity[k];
   }
 
+  function syncShapeSettings() {
+    const k = state.activeShapeKey;
+    if (!k) return;
+    state.color = state.shapeColors[k];
+    state.brushSizeIndex = state.shapeSizes[k];
+    state.brushSize = BRUSH_SIZES[state.brushSizeIndex];
+    state.opacity = state.shapeOpacity[k];
+    const shape = SHAPES.find((s) => s.key === k);
+    if (shape) state.tool = shape.tool;
+  }
+
+  function clearShapeSelection() {
+    state.activeShapeKey = null;
+    [els.btnShapeRect, els.btnShapeEllipse, els.btnShapeLine].forEach((b) => {
+      if (!b) return;
+      b.classList.remove('is-active');
+      b.setAttribute('aria-pressed', 'false');
+    });
+  }
+
+  function updateShapeButtons() {
+    [els.btnShapeRect, els.btnShapeEllipse, els.btnShapeLine].forEach((b) => {
+      if (!b) return;
+      const on = b.dataset.shape === state.activeShapeKey;
+      b.classList.toggle('is-active', on);
+      b.setAttribute('aria-pressed', String(on));
+    });
+  }
+
   function selectTool(key) {
     const t = TOOLS.find((x) => x.key === key);
     if (!t) return;
     resumeAudio();
-    if (key === state.activeKey && t.key !== 'eraser') { openToolModal(t); return; }
+    if (key === state.activeKey && !state.activeShapeKey) { openToolModal(t); return; }
+    clearShapeSelection();
     state.activeKey = key;
     state.tool = t.tool;
     syncActiveSettings();
-    updateDockSizeDot();
     els.toolList.querySelectorAll('.wp-tool').forEach((b) => {
       b.classList.toggle('is-active', b.dataset.key === key);
     });
     playSwitch();
     callbacks.onToolChange?.(t.tool);
+  }
+
+  function selectShape(key) {
+    const s = SHAPES.find((x) => x.key === key);
+    if (!s) return;
+    resumeAudio();
+    if (key === state.activeShapeKey) { openShapeModal(s); return; }
+    state.activeShapeKey = key;
+    state.tool = s.tool;
+    syncShapeSettings();
+    els.toolList.querySelectorAll('.wp-tool').forEach((b) => b.classList.remove('is-active'));
+    updateShapeButtons();
+    playSwitch();
+    callbacks.onShapeChange?.();
   }
 
   /* ── Modal cor + opacidade da ferramenta ────────────────── */
@@ -185,48 +278,103 @@ export function createUI(callbacks) {
     });
   }
   function openToolModal(tool) {
+    colorTargetShapeKey = null;
     colorTargetKey = tool.key;
-    els.colorTitle.textContent = `${tool.label} — cor · opacidade`;
-    els.colorCurrent.style.background = state.toolColors[tool.key];
-    els.colorHex.value = state.toolColors[tool.key];
-    els.mOpVal.textContent = `${Math.round(state.toolOpacity[tool.key] * 100)}%`;
+    const isEraser = tool.key === 'eraser' || tool.tool === 'eraser';
+    els.colorModal.classList.toggle('is-eraser', isEraser);
+    if (isEraser) {
+      els.colorTitle.textContent = `${tool.label} — tamanho`;
+    } else {
+      els.colorTitle.textContent = `${tool.label} — cor · opacidade · tamanho`;
+      els.colorCurrent.style.background = state.toolColors[tool.key];
+      els.colorHex.value = state.toolColors[tool.key];
+      els.mOpVal.textContent = `${Math.round(state.toolOpacity[tool.key] * 100)}%`;
+    }
+    updateModalSizeDot();
     els.colorModal.hidden = false;
   }
+
+  function openShapeModal(shape) {
+    colorTargetKey = null;
+    colorTargetShapeKey = shape.key;
+    els.colorModal.classList.remove('is-eraser');
+    els.colorTitle.textContent = `${shape.label} — cor · opacidade · tamanho`;
+    els.colorCurrent.style.background = state.shapeColors[shape.key];
+    els.colorHex.value = state.shapeColors[shape.key];
+    els.mOpVal.textContent = `${Math.round(state.shapeOpacity[shape.key] * 100)}%`;
+    updateModalSizeDot();
+    els.colorModal.hidden = false;
+  }
+
+  function modalSizeKey() {
+    return colorTargetShapeKey || colorTargetKey || state.activeShapeKey || state.activeKey;
+  }
   function setToolColor(hex) {
-    if (!colorTargetKey) return;
-    state.toolColors[colorTargetKey] = hex;
-    syncActiveSettings();
-    updateDockSizeDot();
+    const k = colorTargetShapeKey || colorTargetKey;
+    if (!k) return;
+    if (colorTargetShapeKey) {
+      state.shapeColors[k] = hex;
+      if (k === state.activeShapeKey) syncShapeSettings();
+    } else {
+      state.toolColors[k] = hex;
+      if (k === state.activeKey) syncActiveSettings();
+      applyToolColors();
+    }
+    updateModalSizeDot();
     els.colorCurrent.style.background = hex;
     els.colorHex.value = hex;
-    applyToolColors();
     callbacks.onColorChange?.();
   }
   function changeOpacity(delta) {
-    if (!colorTargetKey) return;
-    let i = OPACITIES.indexOf(state.toolOpacity[colorTargetKey]);
+    const shapeKey = colorTargetShapeKey;
+    const toolKey = colorTargetKey;
+    if (shapeKey) {
+      let i = OPACITIES.indexOf(state.shapeOpacity[shapeKey]);
+      if (i < 0) i = OPACITIES.length - 1;
+      const next = i + delta;
+      if (next < 0 || next >= OPACITIES.length) return;
+      state.shapeOpacity[shapeKey] = OPACITIES[next];
+      if (shapeKey === state.activeShapeKey) syncShapeSettings();
+      els.mOpVal.textContent = `${Math.round(OPACITIES[next] * 100)}%`;
+      return;
+    }
+    if (!toolKey) return;
+    let i = OPACITIES.indexOf(state.toolOpacity[toolKey]);
     if (i < 0) i = OPACITIES.length - 1;
     const next = i + delta;
     if (next < 0 || next >= OPACITIES.length) return;
-    state.toolOpacity[colorTargetKey] = OPACITIES[next];
-    syncActiveSettings();
+    state.toolOpacity[toolKey] = OPACITIES[next];
+    if (toolKey === state.activeKey) syncActiveSettings();
     els.mOpVal.textContent = `${Math.round(OPACITIES[next] * 100)}%`;
   }
 
-  /* ── Tamanho do traço (na barra inferior) ───────────────── */
-  function updateDockSizeDot() {
-    const px = Math.max(4, Math.min(28, BRUSH_SIZES[state.toolSizes[state.activeKey]] + 4));
-    els.dockSizeDot.style.width = `${px}px`;
-    els.dockSizeDot.style.height = `${px}px`;
-    els.dockSizeDot.style.background = state.color;
+  /* ── Tamanho do traço (dentro do modal da ferramenta) ────── */
+  function updateModalSizeDot() {
+    const k = modalSizeKey();
+    const shapeMode = Boolean(colorTargetShapeKey || (!colorTargetKey && state.activeShapeKey));
+    const sizes = shapeMode ? state.shapeSizes : state.toolSizes;
+    const colors = shapeMode ? state.shapeColors : state.toolColors;
+    const px = Math.max(4, Math.min(30, BRUSH_SIZES[sizes[k]] + 4));
+    const isEraser = k === 'eraser' && !shapeMode;
+    els.mSizeDot.style.width = `${px}px`;
+    els.mSizeDot.style.height = `${px}px`;
+    els.mSizeDot.style.background = isEraser ? 'var(--fg)' : colors[k];
   }
   function changeSize(delta) {
-    const k = state.activeKey;
+    if (colorTargetShapeKey) {
+      const next = state.shapeSizes[colorTargetShapeKey] + delta;
+      if (next < 0 || next >= BRUSH_SIZES.length) return;
+      state.shapeSizes[colorTargetShapeKey] = next;
+      if (colorTargetShapeKey === state.activeShapeKey) syncShapeSettings();
+      updateModalSizeDot();
+      return;
+    }
+    const k = colorTargetKey || state.activeKey;
     const next = state.toolSizes[k] + delta;
     if (next < 0 || next >= BRUSH_SIZES.length) return;
     state.toolSizes[k] = next;
-    syncActiveSettings();
-    updateDockSizeDot();
+    if (k === state.activeKey && !state.activeShapeKey) syncActiveSettings();
+    updateModalSizeDot();
   }
 
   /* ── Modal cor do fundo ─────────────────────────────────── */
@@ -257,13 +405,6 @@ export function createUI(callbacks) {
     });
   }
 
-  /* ── Mute ───────────────────────────────────────────────── */
-  function refreshMute() {
-    els.btnMute.textContent = '♪';
-    els.btnMute.title = isMuted() ? 'som desligado' : 'som ligado';
-    els.btnMute.classList.toggle('is-off', isMuted());
-  }
-
   function bindEvents() {
     els.btnStart.addEventListener('click', () => {
       resumeAudio();
@@ -279,29 +420,40 @@ export function createUI(callbacks) {
     els.btnUndo.addEventListener('click', undo);
     els.btnRedo.addEventListener('click', redo);
     els.btnClear.addEventListener('click', () => callbacks.onClear?.());
-    els.btnMute.addEventListener('click', () => {
-      setMuted(!isMuted());
-      refreshMute();
-      els.btnMute.classList.remove('rb-pop');
-      void els.btnMute.offsetWidth;
-      els.btnMute.classList.add('rb-pop');
-    });
     els.btnSave.addEventListener('click', () => { callbacks.onSave?.(); flash(els.btnSave, 'Guardado!'); });
     els.btnExportGif.addEventListener('click', () => callbacks.onExportGif?.());
     els.btnBackground.addEventListener('click', openBgModal);
     els.btnCrop.addEventListener('click', () => { els.resModal.hidden = false; });
-    els.dockSizeDown.addEventListener('click', () => changeSize(-1));
-    els.dockSizeUp.addEventListener('click', () => changeSize(1));
+
+    els.btnMirrorH.addEventListener('click', () => {
+      state.mirrorH = !state.mirrorH;
+      els.btnMirrorH.classList.toggle('is-active', state.mirrorH);
+      els.btnMirrorH.setAttribute('aria-pressed', String(state.mirrorH));
+    });
+    els.btnMirrorV.addEventListener('click', () => {
+      state.mirrorV = !state.mirrorV;
+      els.btnMirrorV.classList.toggle('is-active', state.mirrorV);
+      els.btnMirrorV.setAttribute('aria-pressed', String(state.mirrorV));
+    });
+
+    els.btnShapeRect?.addEventListener('click', () => selectShape('rect'));
+    els.btnShapeEllipse?.addEventListener('click', () => selectShape('ellipse'));
+    els.btnShapeLine?.addEventListener('click', () => selectShape('line'));
 
     // Modais
     els.colorClose.addEventListener('click', () => { els.colorModal.hidden = true; });
     els.colorModal.addEventListener('click', (e) => { if (e.target === els.colorModal) els.colorModal.hidden = true; });
     els.mOpDown.addEventListener('click', () => changeOpacity(-1));
     els.mOpUp.addEventListener('click', () => changeOpacity(1));
+    els.mSizeDown.addEventListener('click', () => changeSize(-1));
+    els.mSizeUp.addEventListener('click', () => changeSize(1));
     els.colorHex.addEventListener('change', () => {
       const v = els.colorHex.value.trim();
       if (/^#[0-9a-fA-F]{6}$/.test(v)) setToolColor(v.toLowerCase());
-      else els.colorHex.value = state.toolColors[colorTargetKey];
+      else {
+        const k = colorTargetShapeKey || colorTargetKey;
+        els.colorHex.value = colorTargetShapeKey ? state.shapeColors[k] : state.toolColors[k];
+      }
     });
 
     els.bgClose.addEventListener('click', () => { els.bgModal.hidden = true; });
@@ -315,8 +467,30 @@ export function createUI(callbacks) {
     els.resClose.addEventListener('click', () => { els.resModal.hidden = true; });
     els.resModal.addEventListener('click', (e) => { if (e.target === els.resModal) els.resModal.hidden = true; });
 
+    // Menu / renomear / apagar projeto
+    els.projClose.addEventListener('click', () => { els.projModal.hidden = true; });
+    els.projModal.addEventListener('click', (e) => { if (e.target === els.projModal) els.projModal.hidden = true; });
+    els.projRename.addEventListener('click', openRename);
+    els.projDelete.addEventListener('click', openDelete);
+
+    els.renameClose.addEventListener('click', () => { els.renameModal.hidden = true; });
+    els.renameCancel.addEventListener('click', () => { els.renameModal.hidden = true; });
+    els.renameConfirm.addEventListener('click', confirmRename);
+    els.renameModal.addEventListener('click', (e) => { if (e.target === els.renameModal) els.renameModal.hidden = true; });
+    els.renameInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') { e.preventDefault(); confirmRename(); }
+    });
+
+    els.delClose.addEventListener('click', () => { els.delModal.hidden = true; });
+    els.delCancel.addEventListener('click', () => { els.delModal.hidden = true; });
+    els.delConfirm.addEventListener('click', confirmDelete);
+    els.delModal.addEventListener('click', (e) => { if (e.target === els.delModal) els.delModal.hidden = true; });
+
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape') { els.colorModal.hidden = true; els.bgModal.hidden = true; els.resModal.hidden = true; }
+      if (e.key === 'Escape') {
+        els.colorModal.hidden = true; els.bgModal.hidden = true; els.resModal.hidden = true;
+        els.projModal.hidden = true; els.renameModal.hidden = true; els.delModal.hidden = true;
+      }
       if (e.ctrlKey && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
       if ((e.ctrlKey && e.key === 'y') || (e.ctrlKey && e.shiftKey && e.key === 'z')) { e.preventDefault(); redo(); }
     });
@@ -337,10 +511,8 @@ export function createUI(callbacks) {
     buildResList();
     els.btnClear.innerHTML = '<img class="obliterate__img" src="assets/dynamite.png" alt="obliterar" draggable="false">';
     syncActiveSettings();
-    updateDockSizeDot();
-    refreshMute();
     bindEvents();
   }
 
-  return { init, selectTool, applyToolColors, updateDockSizeDot };
+  return { init, selectTool, selectShape, applyToolColors };
 }

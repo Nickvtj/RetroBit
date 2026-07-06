@@ -9,10 +9,12 @@
   --rb-magenta: #e400e4;
   --font: 'VT323', 'Chicago', monospace;
   --hand: 'Covered By Your Grace', 'VT323', cursive;
-  --rail-w: 300px;
+  --rail-w: 220px;
   --dither: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3' height='3'%3E%3Crect width='1' height='1' fill='%23000'/%3E%3C/svg%3E");
-  /* Moldura tremida/rústica (contorno desenhado à mão) para os botões 8-bit */
-  --frame: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='r'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.055' numOctaves='2' seed='6' result='n'/%3E%3CfeDisplacementMap in='SourceGraphic' in2='n' scale='7'/%3E%3C/filter%3E%3Crect x='10' y='10' width='80' height='80' fill='none' stroke='black' stroke-width='6' shape-rendering='crispEdges' filter='url(%23r)'/%3E%3C/svg%3E");
+  /* Moldura 8-bit: contorno preto com cantos "chanfrados" (pixel bevel) */
+  --pixel-frame: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' shape-rendering='crispEdges'%3E%3Cg fill='black'%3E%3Crect x='4' y='0' width='12' height='4'/%3E%3Crect x='4' y='16' width='12' height='4'/%3E%3Crect x='0' y='4' width='4' height='12'/%3E%3Crect x='16' y='4' width='4' height='12'/%3E%3Crect x='2' y='2' width='2' height='2'/%3E%3Crect x='16' y='2' width='2' height='2'/%3E%3Crect x='2' y='16' width='2' height='2'/%3E%3Crect x='16' y='16' width='2' height='2'/%3E%3C/g%3E%3C/svg%3E");
+  /* Fundo de pontinhos "com zoom" (mais espaço entre eles) em azul subtil. */
+  --dots: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Crect width='2' height='2' fill='%23aebfdc'/%3E%3C/svg%3E");
 }
 
 html, body {
@@ -23,6 +25,11 @@ html, body {
   font-size: 16px;
   color: var(--fg);
   background: var(--bg);
+}
+
+/* UI do app/galeria/modais → VT323 (8-bit). Splash mantém o título manuscrito. */
+.gallery, .app, .modal-backdrop {
+  font-family: var(--font);
 }
 
 /* ── Janela retro (splash + modais) ──────────────────────── */
@@ -54,7 +61,9 @@ html, body {
   cursor: pointer;
 }
 
-/* ── Splash ──────────────────────────────────────────────── */
+/* ── Splash (estilo "Wiggly Paint": título tremido em fundo limpo) ── */
+.rb-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+
 .splash {
   position: fixed;
   inset: 0;
@@ -62,25 +71,53 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: var(--bg);
-  background-image: var(--dither);
+  background: var(--bg);
 }
 .splash[hidden] { display: none; }
-.splash__body { padding: 36px 28px; text-align: center; min-width: 340px; }
-.splash__title { font-family: var(--hand); font-size: 64px; line-height: 1; margin-bottom: 16px; }
-.splash__sub { font-size: 16px; margin-bottom: 28px; text-transform: lowercase; }
+.splash__body { padding: 24px; text-align: center; min-width: 340px; }
+
+.splash__title {
+  font-family: var(--hand);
+  font-weight: 700;
+  font-size: clamp(90px, 17vw, 190px);
+  line-height: 0.9;
+  letter-spacing: 2px;
+  margin-bottom: 10px;
+  filter: url(#rb-wiggle);
+}
+.splash__sub {
+  font-family: var(--font);
+  font-size: clamp(18px, 2.6vw, 26px);
+  margin-bottom: 48px;
+  opacity: 0.85;
+}
 .splash__go {
   font-family: var(--font);
-  font-size: 22px;
-  padding: 8px 24px;
-  border: 2px solid var(--fg);
+  font-size: 30px;
+  padding: 12px 40px;
+  border: 3px solid var(--fg);
   background: var(--bg);
   color: var(--fg);
   cursor: pointer;
-  box-shadow: 3px 3px 0 var(--fg);
 }
-.splash__go:active { transform: translate(2px, 2px); box-shadow: 1px 1px 0 var(--fg); }
-.splash__ver { display: block; margin-top: 22px; font-size: 13px; opacity: 0.5; }
+.splash__go:hover { background: var(--fg); color: var(--bg); }
+.splash__go:active { transform: translate(2px, 2px); }
+.splash__ver { position: fixed; right: 18px; bottom: 14px; font-family: var(--font); font-size: 20px; opacity: 0.55; }
+.splash__credit {
+  position: fixed;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  font-family: var(--font);
+  font-size: 20px;
+  opacity: 0.55;
+  text-align: center;
+  white-space: nowrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .splash__title { filter: none; }
+}
 
 /* ── Galeria de projetos ─────────────────────────────────── */
 .gallery {
@@ -164,13 +201,15 @@ html, body {
 /* ── App (tela de desenho) ───────────────────────────────── */
 .app {
   display: grid;
-  grid-template-columns: 1fr var(--rail-w);
+  /* Coluna-espaçadora à esquerda == rail → a tela fica centrada no ecrã. */
+  grid-template-columns: var(--rail-w) 1fr var(--rail-w);
   grid-template-rows: 1fr auto;
   height: 100vh;
   width: 100vw;
-  /* dither contínuo por trás de tudo → sem emendas entre zonas */
+  /* Fundo de pontinhos azuis subtis, bem espaçados. */
   background-color: var(--bg);
-  background-image: var(--dither);
+  background-image: var(--dots);
+  background-repeat: repeat;
 }
 .app[hidden] { display: none; }
 
@@ -179,34 +218,214 @@ html, body {
   top: 12px; left: 12px;
   z-index: 20;
   font-family: var(--font);
-  font-size: 18px;
-  padding: 5px 14px;
-  border: 2px solid var(--fg);
+  font-size: 20px;
+  line-height: 1;
+  padding: 8px 16px;
+  border: 6px solid #000;
+  border-image: var(--pixel-frame) 8 / 6px / 0 stretch;
   background: var(--bg);
   color: var(--fg);
   cursor: pointer;
-  box-shadow: 3px 3px 0 var(--fg);
 }
-.back-btn:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--fg); }
-.back-btn:active { transform: translate(2px, 2px); box-shadow: none; }
+.back-btn:hover { transform: translate(-1px, -1px); }
+.back-btn:active { transform: translate(2px, 2px); }
 
 .canvas-zone {
-  grid-column: 1;
-  grid-row: 1;
+  grid-column: 2;
+  grid-row: 1 / span 2;   /* ocupa a altura toda → tela centrada no ecrã */
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 14px;
+  padding: 20px 8px 84px;  /* folga inferior p/ o dock sobreposto não tapar */
   min-height: 0;
   overflow: hidden;
 }
 
+/* ── Painel de camadas (8-bit, extremo esquerdo do ecrã) ─── */
+.layers-panel {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  align-self: center;
+  justify-self: stretch;
+  width: 100%;
+  max-width: var(--rail-w);
+  max-height: min(480px, 78vh);
+  margin: 0 6px 0 10px;
+  display: flex;
+  flex-direction: column;
+  border: 3px solid var(--fg);
+  background: var(--bg);
+  box-shadow: 4px 4px 0 var(--fg);
+  z-index: 5;
+}
+.layers-panel__bar {
+  height: 22px;
+  border-bottom: 3px solid var(--fg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font);
+  font-size: 14px;
+  background-image: repeating-linear-gradient(to bottom, var(--fg) 0, var(--fg) 1px, var(--bg) 1px, var(--bg) 3px);
+}
+.layers-panel__bar > span { background: var(--bg); padding: 0 8px; line-height: 1; }
+.layers-panel__list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  scrollbar-width: thin;
+}
+.layers-panel__add {
+  flex: 0 0 auto;
+  margin: 0;
+  border: none;
+  border-top: 3px solid var(--fg);
+  background: var(--bg);
+  font-family: var(--font);
+  font-size: 28px;
+  line-height: 1;
+  padding: 6px;
+  cursor: pointer;
+  color: var(--fg);
+}
+.layers-panel__add:hover { background: var(--fg); color: var(--bg); }
+.layers-panel__add:active { transform: translateY(2px); }
+
+.layer-row {
+  display: grid;
+  grid-template-columns: 22px 48px 1fr 24px;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 2px 5px;
+  padding: 5px;
+  border: 2px solid var(--fg);
+  background: var(--bg);
+  cursor: grab;
+  box-shadow: 2px 2px 0 var(--fg);
+  user-select: none;
+}
+.layer-row.is-active {
+  background: var(--fg);
+  color: var(--bg);
+  box-shadow: 3px 3px 0 var(--rb-cyan);
+}
+.layer-row.is-hidden { opacity: 0.45; }
+.layer-row.is-locked .layer-row__name::after { content: ' [B]'; font-size: 12px; }
+.layer-row.is-dragging { opacity: 0.5; cursor: grabbing; }
+.layer-row.is-drop-target { outline: 2px dashed var(--rb-magenta); outline-offset: 1px; }
+
+.layer-row__eye {
+  grid-row: 1 / span 2;
+  border: none;
+  background: none;
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+}
+.layer-row.is-active .layer-row__thumb { border-color: var(--bg); }
+.layer-row__thumb {
+  grid-row: 1 / span 2;
+  width: 48px;
+  height: 38px;
+  border: 2px solid var(--fg);
+  image-rendering: pixelated;
+  background: #fff;
+}
+.layer-row__name {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.15;
+  word-break: break-word;
+  white-space: normal;
+}
+.layer-row__menu {
+  grid-row: 1 / span 2;
+  border: none;
+  background: none;
+  font-family: var(--font);
+  font-size: 18px;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+}
+.layer-row__menu:hover { color: var(--rb-magenta); }
+.layer-row.is-active .layer-row__menu:hover { color: var(--rb-cyan); }
+
+.layer-menu-win { width: min(92vw, 300px); }
+.layer-menu-win__body { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+
+.canvas-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 0 6px 6px 0;
+}
+
+.mirror-bar {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 100%;
+}
+
+.mirror-bar__sep {
+  width: 3px;
+  height: 28px;
+  background: var(--fg);
+  opacity: 0.35;
+  margin: 0 2px;
+}
+
+.mirror-btn {
+  width: 42px;
+  height: 36px;
+  padding: 5px;
+  border: 3px solid var(--fg);
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 3px 3px 0 var(--fg);
+  cursor: pointer;
+  line-height: 0;
+}
+.mirror-btn:hover { transform: translate(-1px, -1px); }
+.mirror-btn:active { transform: translate(+2px, +2px); box-shadow: 1px 1px 0 var(--fg); }
+.mirror-btn.is-active {
+  background: var(--fg);
+  color: var(--bg);
+  box-shadow: 3px 3px 0 var(--rb-cyan);
+}
+.mirror-btn__icon { display: block; width: 100%; height: 100%; }
+.mirror-btn__ink { fill: var(--fg); }
+.mirror-btn.is-active .mirror-btn__ink { fill: var(--bg); }
+
 .canvas-frame {
   position: relative;
-  border: 3px solid var(--fg);
   background: #fff;
   line-height: 0;
+  border: none;
+  border-top: 3px solid var(--fg);
+  border-left: 3px solid var(--fg);
+  box-shadow:
+    3px 0 0 var(--fg),
+    0 3px 0 var(--fg),
+    3px 3px 0 var(--fg),
+    6px 0 0 var(--fg),
+    0 6px 0 var(--fg);
 }
 
 #main-canvas, #overlay-canvas {
@@ -219,30 +438,43 @@ html, body {
 #overlay-canvas { position: absolute; top: 0; left: 0; pointer-events: none; z-index: 2; }
 #main-canvas { cursor: none; position: relative; z-index: 1; }
 
+.canvas-cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 0, 0, 0.92);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.92);
+  pointer-events: none;
+  z-index: 10;
+  will-change: transform;
+  contain: layout style;
+}
+#main-canvas.is-crop { cursor: crosshair; }
+#main-canvas.is-crop ~ .canvas-cursor { display: none !important; }
+
 /* ── Barra lateral de ferramentas ────────────────────────── */
 .tool-rail {
-  grid-column: 2;
+  grid-column: 3;
   grid-row: 1 / span 2;
   position: relative;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
-  padding: 4px 0;
-  overflow: hidden;
+  align-items: center;
+  justify-content: center;   /* centra verticalmente o conjunto de canetas */
+  padding: 4px 14px 4px 0;    /* puxa as ferramentas um pouco para o centro */
+  overflow: visible;          /* deixa a ferramenta ativa "sair" sem cortar */
 }
 
 .tool-rail__stack {
-  flex: 1 1 auto;
   min-height: 0;
-  overflow-y: auto;
-  scrollbar-width: none;
+  max-height: 100%;
+  overflow: visible;
   display: flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: center;
   gap: 0;
-  width: 100%;
 }
-.tool-rail__stack::-webkit-scrollbar { display: none; }
 
 .wp-tool {
   position: relative;
@@ -250,26 +482,30 @@ html, body {
   border: none;
   padding: 0;
   cursor: pointer;
-  align-self: flex-end;
+  align-self: center;
   will-change: transform;
   transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 .wp-tool img {
   display: block;
-  width: 260px;
-  height: 82px;
+  width: 216px;
+  height: 66px;
   object-fit: contain;
-  object-position: right center;
+  object-position: center;
   pointer-events: none;
   image-rendering: pixelated;
 }
-.wp-tool + .wp-tool { margin-top: -24px; }          /* canetas bem juntas */
-.wp-tool + .wp-tool--eraser { margin-top: 16px; }   /* borracha afastada dos pincéis */
-.wp-tool:hover { transform: translateX(-14px); }
-.wp-tool.is-active { transform: translateX(-34px); z-index: 2; }
+/* Espaçamento uniforme entre todas as canetas: bem juntinhas, sem colar. */
+.wp-tool + .wp-tool { margin-top: -14px; }
+/* O spray traz mais folga na arte → puxa-se ligeiramente para padronizar. */
+.wp-tool[data-key="spray"] { margin-top: -8px; }
+/* A borracha fica afastada dos pincéis (pode bugar e entrar neles). */
+.wp-tool + .wp-tool--eraser { margin-top: 16px; }
+.wp-tool:hover { transform: translateX(-12px); }
+.wp-tool.is-active { transform: translateX(-26px); z-index: 2; }
 
 .obliterate {
-  margin: 6px 0 10px auto;
+  margin: 10px 0 78px auto;
   display: block;
   background: none;
   border: none;
@@ -281,79 +517,43 @@ html, body {
 }
 .obliterate:hover { transform: rotate(-2deg) scale(1.05); }
 .obliterate:active { transform: rotate(-2deg) translateY(3px) scale(0.97); }
-.obliterate__img { display: block; width: 168px; height: auto; image-rendering: pixelated; pointer-events: none; }
+.obliterate__img { display: block; width: 216px; height: auto; image-rendering: pixelated; pointer-events: none; }
 
-/* ── Barra inferior (botões estilo papel 8-bit) ──────────── */
+/* ── Barra inferior (botões estilo 8-bit) ────────────────── */
 .dock {
-  grid-column: 1;
+  grid-column: 2;
   grid-row: 2;
+  z-index: 10;             /* sobrepõe-se à base da tela, como na referência */
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  padding: 10px 16px;
+  gap: 10px;
+  padding: 8px 12px 14px;
   flex-wrap: wrap;
 }
 
-/* Botões estilo papel 8-bit: contorno tremido, desenhado à mão. */
+/* Botões 8-bit: fonte pixelada, contorno preto com cantos chanfrados. */
 .paper-btn {
-  font-family: var(--hand);
+  font-family: var(--font);
   font-size: 24px;
   line-height: 1;
   color: var(--fg);
   background: var(--bg);
-  border: 9px solid #000;
-  border-image: var(--frame) 20 / 9px / 0 stretch;
-  padding: 3px 14px;
+  border: 7px solid #000;
+  border-image: var(--pixel-frame) 8 / 7px / 0 stretch;
+  padding: 8px 18px;
   cursor: pointer;
   transition: transform 0.06s steps(2);
 }
 .paper-btn:hover { transform: translateY(-2px); }
 .paper-btn:active { transform: translateY(2px); }
 .paper-btn.is-flash { background: var(--fg); color: var(--bg); }
-.paper-btn--icon { font-family: var(--font); font-size: 22px; padding: 3px 10px; }
+.paper-btn--icon { font-size: 24px; padding: 8px 14px; }
 
-/* "Exportar" destacado — bloco preto sólido (como o "Export" da referência). */
-#btn-export-gif { background: var(--fg); color: var(--bg); }
-#btn-export-gif.is-flash { background: var(--bg); color: var(--fg); }
-
-/* Caixa "tamanho" (rótulo em cima, ◀ ● ▶ por baixo). */
-.dock__size {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 4px 16px;
-  background: var(--bg);
-  border: 9px solid #000;
-  border-image: var(--frame) 20 / 9px / 0 stretch;
-}
-.dock__size-label { font-family: var(--hand); font-size: 20px; line-height: 1; }
-.dock__size .stepper { border: none; box-shadow: none; background: none; padding: 0; gap: 12px; }
-.dock__size .stepper__btn { border: none; background: none; width: auto; height: auto; font-size: 22px; }
-.dock__size .stepper__btn:active { background: none; color: var(--rb-magenta); }
-.dock__size .stepper__stage { width: 34px; height: 28px; }
-
-/* Som (♪) fica encostado à direita, sem desalinhar o grupo central. */
-.dock__mute { position: absolute; right: 16px; top: 50%; transform: translateY(-50%); overflow: hidden; }
-.dock__mute:hover, .dock__mute:active { transform: translateY(-50%); }
-.dock__mute.is-off { opacity: 0.5; }
-.dock__mute.is-off::after {
-  content: "";
-  position: absolute;
-  left: -15%; top: 46%;
-  width: 130%; height: 3px;
-  background: var(--rb-magenta);
-  transform: rotate(-24deg);
-}
-@keyframes rb-pop {
-  0%   { transform: translateY(-50%) scale(1); }
-  40%  { transform: translateY(-50%) scale(1.4); }
-  70%  { transform: translateY(-50%) scale(0.85); }
-  100% { transform: translateY(-50%) scale(1); }
-}
-.dock__mute.rb-pop { animation: rb-pop 0.3s steps(5, end); }
+/* "Salvar" destacado — bloco preto sólido. */
+#btn-save { background: var(--fg); color: var(--bg); }
+#btn-save.is-flash { background: var(--bg); color: var(--fg); }
 
 /* ── Steppers (tamanho / opacidade) ──────────────────────── */
 .stepper {
@@ -413,8 +613,14 @@ html, body {
 .color-swatch:hover { transform: scale(1.25); outline: 2px solid var(--fg); z-index: 2; }
 .color-win__ctrls { display: flex; flex-direction: column; gap: 8px; }
 .ctrl-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.ctrl-row__label { font-family: var(--hand); font-size: 20px; }
+.ctrl-row__label { font-family: var(--font); font-size: 20px; }
+.ctrl-row--size .stepper__stage { width: 40px; height: 34px; }
 .color-win__foot { display: flex; align-items: center; gap: 10px; }
+
+/* Modal em modo borracha: só o controlo de tamanho (sem cor/opacidade). */
+#color-modal.is-eraser .color-grid,
+#color-modal.is-eraser .ctrl-row--op,
+#color-modal.is-eraser .color-win__foot { display: none; }
 .color-win__chip { width: 34px; height: 24px; border: 2px solid var(--fg); }
 .color-win__hex {
   font-family: var(--font);
@@ -445,6 +651,59 @@ html, body {
 .res-opt:hover { background: var(--fg); color: var(--bg); }
 .res-opt:active { transform: translate(2px, 2px); box-shadow: none; }
 .res-opt__dim { opacity: 0.7; }
+
+/* ── Menu / renomear / apagar projeto ────────────────────── */
+.proj-win, .rename-win, .del-win { width: min(92vw, 340px); }
+
+.proj-win__body { padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.proj-action {
+  font-family: var(--font);
+  font-size: 22px;
+  text-align: left;
+  padding: 10px 14px;
+  border: 2px solid var(--fg);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  box-shadow: 3px 3px 0 var(--fg);
+}
+.proj-action:hover { background: var(--fg); color: var(--bg); }
+.proj-action:active { transform: translate(2px, 2px); box-shadow: none; }
+.proj-action--danger:hover { background: var(--rb-magenta); color: var(--bg); }
+
+.rename-win__body { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.rename-win__input {
+  font-family: var(--font);
+  font-size: 22px;
+  padding: 8px 12px;
+  border: 2px solid var(--fg);
+  background: var(--bg);
+  color: var(--fg);
+  width: 100%;
+}
+.rename-win__input:focus { outline: 2px solid var(--rb-cyan); outline-offset: 1px; }
+.rename-win__foot,
+.del-win__foot { display: flex; justify-content: space-between; gap: 10px; }
+
+.del-win__body { padding: 18px 16px; display: flex; flex-direction: column; gap: 18px; }
+.del-win__msg { font-family: var(--font); font-size: 22px; line-height: 1.25; text-align: center; }
+.del-win__sub { font-size: 16px; opacity: 0.65; }
+
+/* Botões dos modais de projeto (retro, com sombra dura). */
+.ui-btn {
+  font-family: var(--font);
+  font-size: 20px;
+  padding: 8px 18px;
+  border: 2px solid var(--fg);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  box-shadow: 3px 3px 0 var(--fg);
+}
+.ui-btn:hover { transform: translate(-1px, -1px); box-shadow: 4px 4px 0 var(--fg); }
+.ui-btn:active { transform: translate(2px, 2px); box-shadow: none; }
+.ui-btn--go { background: var(--fg); color: var(--bg); }
+.ui-btn--danger:hover { background: var(--rb-magenta); color: var(--bg); border-color: var(--rb-magenta); }
 
 /* ── Transição íris (círculo que consome tudo) ───────────── */
 .wipe {

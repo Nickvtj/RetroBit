@@ -41,6 +41,13 @@ export const TOOLS = [
   { key: 'eraser', tool: 'eraser', label: 'borracha', img: `${A}/eraser.png` },
 ];
 
+/** Formas geométricas (barra acima do quadro). */
+export const SHAPES = [
+  { key: 'rect', tool: 'shapeRect', label: 'retângulo' },
+  { key: 'ellipse', tool: 'shapeEllipse', label: 'elipse' },
+  { key: 'line', tool: 'shapeLine', label: 'linha' },
+];
+
 /**
  * Física / comportamento de cada motor de desenho.
  * widthScale → multiplica o tamanho do traço escolhido
@@ -57,17 +64,20 @@ export const TOOL_DEFS = {
   marker:  { widthScale: 2.6, amp: 2.0, alpha: 0.5,  composite: 'multiply',    cap: 'square', pressure: false, marker: true },
   spray:   { widthScale: 1.0, amp: 1.6, alpha: 0.85, composite: 'source-over', cap: 'round',  pressure: true, spray: true },
   eraser:  { widthScale: 2.8, amp: 0.9, alpha: 1.0,  composite: 'source-over', cap: 'round',  pressure: false, eraser: true },
+  shapeRect:    { widthScale: 1, amp: 1.5, alpha: 1.0, composite: 'source-over', cap: 'round', pressure: false, shape: 'rect' },
+  shapeEllipse: { widthScale: 1, amp: 1.5, alpha: 1.0, composite: 'source-over', cap: 'round', pressure: false, shape: 'ellipse' },
+  shapeLine:    { widthScale: 1, amp: 1.5, alpha: 1.0, composite: 'source-over', cap: 'round', pressure: false, shape: 'line' },
 };
 
-export const BRUSH_SIZES = [1, 3, 6, 10, 16];
+export const BRUSH_SIZES = [1, 3, 6, 10, 16, 24];
 export const OPACITIES = [0.25, 0.5, 0.75, 1];
 
 /** Resoluções (tamanho da tela de desenho) disponíveis no "Crop". */
 export const RESOLUTIONS = [
-  { label: 'paisagem', w: 960, h: 720 },
-  { label: 'quadrado', w: 800, h: 800 },
-  { label: 'retrato', w: 720, h: 960 },
-  { label: 'wide', w: 1024, h: 576 },
+  { label: 'paisagem', w: 720, h: 540 },
+  { label: 'quadrado', w: 620, h: 620 },
+  { label: 'retrato', w: 540, h: 720 },
+  { label: 'wide', w: 800, h: 450 },
 ];
 
 export const state = {
@@ -84,20 +94,32 @@ export const state = {
   brushSize: 3,
   brushSizeIndex: 1,
 
-  // ── Modelo de desenho baseado em paths ──
-  paths: [],          // paths finalizados + o que está a ser desenhado
+  // ── Camadas (cada uma com os seus traços) ──
+  layers: [],
+  activeLayerId: null,
+
   currentPath: null,  // path em curso (null quando não se desenha)
 
   isDrawing: false,
   lastX: 0,
   lastY: 0,
 
-  canvasWidth: 960,
-  canvasHeight: 720,
+  canvasWidth: 720,
+  canvasHeight: 540,
 
   cropRect: null,
   isCropping: false,
   cropStart: null,
+
+  mirrorH: false,  // espelho horizontal (eixo vertical no centro)
+  mirrorV: false,  // espelho vertical (eixo horizontal no centro)
+
+  activeShapeKey: null,  // forma ativa (null = ferramenta de traço)
+  shapeColors: {},
+  shapeSizes: {},
+  shapeOpacity: {},
+  isShapeDrawing: false,
+  shapeDraft: null,
 };
 
 /** Cores iniciais por ferramenta — mostram já a personalidade "1 cor por caneta". */
@@ -112,22 +134,108 @@ const DEFAULT_TOOL_COLORS = {
 };
 TOOLS.forEach((t) => {
   state.toolColors[t.key] = DEFAULT_TOOL_COLORS[t.key] || '#000000';
-  state.toolSizes[t.key] = 1;   // índice em BRUSH_SIZES
-  state.toolOpacity[t.key] = 1; // opaco por defeito
+  state.toolSizes[t.key] = 1;
+  state.toolOpacity[t.key] = 1;
+});
+SHAPES.forEach((s) => {
+  state.shapeColors[s.key] = '#000000';
+  state.shapeSizes[s.key] = 1;
+  state.shapeOpacity[s.key] = 1;
 });
 state.color = state.toolColors[state.activeKey];
 
-/** Snapshot leve para o histórico (paths partilhados por referência + dims). */
+export function makeLayerId() {
+  return 'ly_' + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36);
+}
+
+/** Cria uma camada vazia (ou com paths já existentes). */
+export function createLayer(name, paths = []) {
+  return {
+    id: makeLayerId(),
+    name,
+    paths,
+    visible: true,
+    opacity: 1,
+    locked: false,
+  };
+}
+
+export function getLayerById(id) {
+  return state.layers.find((l) => l.id === id) || null;
+}
+
+export function getActiveLayer() {
+  if (!state.layers.length) return null;
+  let layer = getLayerById(state.activeLayerId);
+  if (!layer) {
+    state.activeLayerId = state.layers[state.layers.length - 1].id;
+    layer = getLayerById(state.activeLayerId);
+  }
+  return layer;
+}
+
+/** Garante que existe pelo menos uma camada ativa válida. */
+export function ensureLayers() {
+  if (!state.layers.length) initLayers();
+  else if (!getLayerById(state.activeLayerId)) {
+    state.activeLayerId = state.layers[state.layers.length - 1].id;
+  }
+}
+
+/** Inicializa o documento com uma camada (novo projeto ou migração). */
+export function initLayers(paths = []) {
+  const layer = createLayer('Camada 1', paths);
+  state.layers = [layer];
+  state.activeLayerId = layer.id;
+}
+
+/** Clona camadas para snapshot (histórico / undo). */
+function cloneLayers(layers) {
+  return layers.map((l) => ({
+    ...l,
+    paths: (l.paths || []).map((p) => ({
+      ...p,
+      points: (p.points || []).map((pt) => ({ ...pt })),
+      particles: p.particles ? p.particles.map((q) => ({ ...q })) : null,
+    })),
+  }));
+}
+
+/** Snapshot para o histórico (camadas + dimensões). */
 export function snapshotPaths() {
   return {
-    paths: state.paths.slice(),
+    layers: cloneLayers(state.layers),
+    activeLayerId: state.activeLayerId,
     w: state.canvasWidth,
     h: state.canvasHeight,
   };
 }
 
+/** Migra projeto antigo (paths planos) → camadas. */
+export function layersFromProject(project) {
+  if (Array.isArray(project.layers) && project.layers.length) {
+    state.layers = cloneLayers(project.layers).map((l) => ({
+      ...l,
+      visible: l.visible !== false,
+      locked: Boolean(l.locked),
+      opacity: typeof l.opacity === 'number' ? l.opacity : 1,
+    }));
+    state.activeLayerId = project.activeLayerId || state.layers[0].id;
+    ensureLayers();
+    return;
+  }
+  const paths = Array.isArray(project.paths) ? project.paths : [];
+  initLayers(paths.map((p) => ({
+    ...p,
+    points: (p.points || []).map((pt) => ({ ...pt })),
+    particles: p.particles ? p.particles.map((q) => ({ ...q })) : null,
+  })));
+}
+
 export function resetDrawing() {
   state.isDrawing = false;
+  state.isShapeDrawing = false;
+  state.shapeDraft = null;
   state.currentPath = null;
 }
 

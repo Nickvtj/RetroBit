@@ -1,5 +1,6 @@
 import { state } from './state.js';
 import { getCanvasBg, getThemeColors } from './theme.js';
+import { drawShapePreview } from './shapes.js';
 
 export class CanvasEngine {
   constructor(elements) {
@@ -35,20 +36,31 @@ export class CanvasEngine {
     this.overlayCtx.clearRect(0, 0, this.width, this.height);
   }
 
+  drawShapePreview(draft) {
+    if (!draft) return;
+    drawShapePreview(this.overlayCtx, draft, this.getStrokeColor());
+  }
+
   /** Anel do cursor (dois traços preto+branco para ser visível em qualquer fundo). */
   drawCursorRing(x, y, r) {
+    this.drawCursorRings([{ x, y }], r);
+  }
+
+  drawCursorRings(positions, r) {
     const ctx = this.overlayCtx;
     ctx.clearRect(0, 0, this.width, this.height);
     ctx.save();
     ctx.lineWidth = 1;
-    ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-    ctx.beginPath();
-    ctx.arc(x, y, r + 1, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.strokeStyle = 'rgba(0,0,0,0.9)';
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.stroke();
+    for (const { x, y } of positions) {
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
+      ctx.beginPath();
+      ctx.arc(x, y, r + 1, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(0,0,0,0.9)';
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.stroke();
+    }
     ctx.restore();
   }
 

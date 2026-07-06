@@ -1,9 +1,10 @@
-import { state, snapshotPaths, TOOL_DEFS, RESOLUTIONS } from './state.js';
+import { state, snapshotPaths, TOOL_DEFS, RESOLUTIONS, initLayers, layersFromProject, ensureLayers, getActiveLayer, BRUSH_SIZES } from './state.js';
 import { CanvasEngine } from './engine.js';
 import { Renderer } from './renderer.js';
 import { History } from './history.js';
 import { createToolHandlers } from './tools.js';
 import { createUI } from './ui.js';
+import { createLayersPanel } from './layers.js';
 import { initTheme } from './theme.js';
 import { playBoom } from './audio.js';
 import { encodeGIF } from './gif.js';
@@ -18,28 +19,43 @@ const renderer = new Renderer(engine);
 const history = new History();
 let tools = null;
 let ui = null;
+let layersPanel = null;
 
 const frameEl = document.getElementById('canvas-frame');
+const cursorEl = document.getElementById('canvas-cursor');
+let cursorPending = null;
+let cursorRaf = 0;
 
 /** Dimensiona a moldura para caber na zona, preservando a proporção da resolução. */
 function fitFrame() {
-  const zone = frameEl.parentElement;
+  const stack = frameEl.parentElement;
+  const zone = stack?.parentElement;
   if (!zone || zone.clientWidth === 0) return;
+  const mirrorBar = stack.querySelector('.mirror-bar');
+  const mirrorExtra = mirrorBar ? mirrorBar.offsetHeight + 8 : 0;
   const cs = getComputedStyle(zone);
-  const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight);
-  const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+  const ss = getComputedStyle(stack);
+  const padX = parseFloat(cs.paddingLeft) + parseFloat(cs.paddingRight)
+    + parseFloat(ss.paddingLeft) + parseFloat(ss.paddingRight);
+  const padY = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom)
+    + parseFloat(ss.paddingTop) + parseFloat(ss.paddingBottom) + mirrorExtra;
   const availW = zone.clientWidth - padX;
   const availH = zone.clientHeight - padY;
   const ar = state.canvasWidth / state.canvasHeight;
-  let w = availW;
+  // Tamanho de exibição máximo → a tela não fica gigante e sobra espaço para
+  // as ferramentas deslizarem sem cortar.
+  const MAX_W = 760;
+  const MAX_H = 560;
+  let w = Math.min(availW, MAX_W);
   let h = w / ar;
-  if (h > availH) { h = availH; w = h * ar; }
+  if (h > Math.min(availH, MAX_H)) { h = Math.min(availH, MAX_H); w = h * ar; }
   frameEl.style.width = `${Math.floor(w)}px`;
   frameEl.style.height = `${Math.floor(h)}px`;
 }
 
 /** (Re)inicializa o canvas com a resolução atual e ajusta a moldura. */
 function initCanvas() {
+  ensureLayers();
   engine.init(state.canvasWidth, state.canvasHeight);
   fitFrame();
   renderer.invalidate();
@@ -47,7 +63,16 @@ function initCanvas() {
 
 function applyHistoryEntry(entry) {
   if (!entry) return;
-  state.paths = entry.paths.slice();
+  if (entry.layers) {
+    state.layers = entry.layers;
+    state.activeLayerId = entry.activeLayerId;
+    ensureLayers();
+    layersPanel?.render();
+  } else if (entry.paths) {
+    // Entrada antiga (só paths) → uma camada.
+    initLayers(entry.paths);
+    layersPanel?.render();
+  }
   if (entry.w !== state.canvasWidth || entry.h !== state.canvasHeight) {
     state.canvasWidth = entry.w;
     state.canvasHeight = entry.h;
@@ -56,11 +81,16 @@ function applyHistoryEntry(entry) {
   }
 }
 
-/** Escala todos os traços de uma resolução para outra. */
-function scalePaths(sx, sy) {
-  for (const p of state.paths) {
-    for (const pt of p.points) { pt.x *= sx; pt.y *= sy; }
-    if (p.particles) for (const q of p.particles) { q.x *= sx; q.y *= sy; }
+/** Escala todos os traços de todas as camadas. */
+function scaleAllPaths(sx, sy) {
+  for (const layer of state.layers) {
+    for (const p of layer.paths) {
+      if (p.shape) {
+        p.x0 *= sx; p.y0 *= sy; p.x1 *= sx; p.y1 *= sy;
+      }
+      for (const pt of p.points) { pt.x *= sx; pt.y *= sy; }
+      if (p.particles) for (const q of p.particles) { q.x *= sx; q.y *= sy; }
+    }
   }
 }
 
@@ -77,27 +107,65 @@ function makeThumb() {
 }
 
 function cursorRadius() {
+  if (state.activeShapeKey) {
+    return Math.max(2.5, BRUSH_SIZES[state.shapeSizes[state.activeShapeKey] ?? 1] / 2);
+  }
   const def = TOOL_DEFS[state.tool] || {};
   if (def.spray) return state.brushSize * 2.2;
   return Math.max(2.5, (state.brushSize * (def.widthScale ?? 1)) / 2);
+}
+
+function applyCursor() {
+  cursorRaf = 0;
+  const e = cursorPending;
+  if (!e) return;
+  if (!cursorEl || state.isCropping) return;
+  const canvas = engine.mainCanvas;
+  const rect = canvas.getBoundingClientRect();
+  if (
+    e.clientX < rect.left || e.clientX > rect.right
+    || e.clientY < rect.top || e.clientY > rect.bottom
+  ) {
+    cursorEl.hidden = true;
+    return;
+  }
+  const scale = rect.width / state.canvasWidth;
+  const r = cursorRadius() * scale;
+  const x = e.clientX - rect.left;
+  const y = e.clientY - rect.top;
+  cursorEl.hidden = false;
+  cursorEl.style.width = `${r * 2}px`;
+  cursorEl.style.height = `${r * 2}px`;
+  cursorEl.style.transform = `translate3d(${x - r}px, ${y - r}px, 0)`;
+}
+
+function scheduleCursor(e) {
+  cursorPending = e;
+  if (!cursorRaf) cursorRaf = requestAnimationFrame(applyCursor);
+}
+
+function hideCursor() {
+  if (cursorEl) cursorEl.hidden = true;
 }
 
 function bindCanvas() {
   const canvas = engine.mainCanvas;
   canvas.addEventListener('pointerdown', (e) => {
     canvas.setPointerCapture(e.pointerId);
+    scheduleCursor(e);
     const pos = engine.getCanvasPos(e);
     tools.onPointerDown(e, pos);
-    engine.drawCursorRing(pos.x, pos.y, cursorRadius());
   });
   canvas.addEventListener('pointermove', (e) => {
+    scheduleCursor(e);
     const pos = engine.getCanvasPos(e);
     tools.onPointerMove(e, pos);
-    engine.drawCursorRing(pos.x, pos.y, cursorRadius());
   });
-  canvas.addEventListener('pointerleave', () => engine.clearOverlay());
+  canvas.addEventListener('pointerleave', hideCursor);
   canvas.addEventListener('pointerup', (e) => {
     tools.onPointerUp(e, engine.getCanvasPos(e));
+    layersPanel?.render();
+    renderer.invalidate();
     canvas.releasePointerCapture(e.pointerId);
   });
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -106,26 +174,31 @@ function bindCanvas() {
 function boot() {
   ui = createUI({
     onNewProject: () => {
-      state.paths = [];
+      initLayers();
       state.currentProjectId = null;
       state.bgColor = '#ffffff';
       state.canvasWidth = RESOLUTIONS[0].w;
       state.canvasHeight = RESOLUTIONS[0].h;
       history.clear();
+      layersPanel?.render();
     },
 
     onOpenProject: (id) => {
       const p = getProject(id);
       if (!p) return;
-      state.paths = Array.isArray(p.paths) ? p.paths : [];
+      layersFromProject(p);
       state.bgColor = p.bgColor || '#ffffff';
       state.canvasWidth = p.w || RESOLUTIONS[0].w;
       state.canvasHeight = p.h || RESOLUTIONS[0].h;
       state.currentProjectId = id;
       history.clear();
+      layersPanel?.render();
     },
 
-    onAppReady: () => initCanvas(),
+    onAppReady: () => {
+      initCanvas();
+      layersPanel?.render();
+    },
 
     onSave: () => {
       const id = state.currentProjectId || makeProjectId();
@@ -136,7 +209,8 @@ function boot() {
         w: state.canvasWidth,
         h: state.canvasHeight,
         bgColor: state.bgColor,
-        paths: state.paths,
+        layers: state.layers,
+        activeLayerId: state.activeLayerId,
         thumb: makeThumb(),
       });
       state.currentProjectId = id;
@@ -146,7 +220,7 @@ function boot() {
 
     onSetResolution: (res) => {
       history.record(snapshotPaths());
-      scalePaths(res.w / state.canvasWidth, res.h / state.canvasHeight);
+      scaleAllPaths(res.w / state.canvasWidth, res.h / state.canvasHeight);
       state.canvasWidth = res.w;
       state.canvasHeight = res.h;
       engine.init(res.w, res.h);
@@ -181,27 +255,44 @@ function boot() {
       setTimeout(() => URL.revokeObjectURL(url), 1000);
     },
 
-    onUndo: () => { applyHistoryEntry(history.undo(snapshotPaths())); renderer.invalidate(); },
-    onRedo: () => { applyHistoryEntry(history.redo(snapshotPaths())); renderer.invalidate(); },
+    onUndo: () => {
+      applyHistoryEntry(history.undo(snapshotPaths()));
+      renderer.invalidate();
+    },
+    onRedo: () => {
+      applyHistoryEntry(history.redo(snapshotPaths()));
+      renderer.invalidate();
+    },
 
     onClear: () => {
+      const layer = getActiveLayer();
+      if (!layer) return;
       history.record(snapshotPaths());
       const app = document.getElementById('app');
       app.classList.add('rb-shake');
       setTimeout(() => app.classList.remove('rb-shake'), 520);
       playBoom();
       engine.runExplosion(state.canvasWidth / 2, state.canvasHeight / 2);
-      state.paths = [];
+      layer.paths = [];
+      layersPanel?.render();
       renderer.invalidate();
     },
 
     onColorChange: () => renderer.invalidate(),
+    onShapeChange: () => renderer.invalidate(),
   });
 
-  tools = createToolHandlers(engine, history);
+  tools = createToolHandlers(engine, history, renderer);
+
+  layersPanel = createLayersPanel({
+    onChange: () => renderer.invalidate(),
+    onHistory: () => history.record(snapshotPaths()),
+  });
 
   initTheme();
   ui.init();
+  initLayers();
+  layersPanel.init();
 
   engine.init(state.canvasWidth, state.canvasHeight);
   fitFrame();

@@ -1,8 +1,9 @@
 /**
  * Persistência dos projetos do utilizador (localStorage).
  *
- * Um projeto é: { id, name, w, h, bgColor, paths, thumb, updatedAt }
- *  - paths: os traços serializados (mesma forma de state.paths)
+ * Um projeto é: { id, name, w, h, bgColor, layers, activeLayerId, thumb, updatedAt }
+ *  - layers: array de camadas { id, name, paths, visible, opacity, locked }
+ *  - paths (legado): migrado para uma camada única ao abrir
  *  - thumb: dataURL pequeno para a miniatura na galeria
  */
 
@@ -50,6 +51,18 @@ export function saveProject(project) {
 
 export function deleteProject(id) {
   writeAll(readAll().filter((p) => p.id !== id));
+}
+
+/** Renomeia um projeto (por id). Devolve o projeto atualizado ou null. */
+export function renameProject(id, name) {
+  const list = readAll();
+  const idx = list.findIndex((p) => p.id === id);
+  if (idx < 0) return null;
+  const clean = String(name).trim().slice(0, 40);
+  if (!clean) return list[idx];
+  list[idx] = { ...list[idx], name: clean, updatedAt: Date.now() };
+  writeAll(list);
+  return list[idx];
 }
 
 export function makeProjectId() {
