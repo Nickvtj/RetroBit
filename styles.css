@@ -525,6 +525,9 @@ html, body {
 .wp-tool[data-key="spray"] { margin-top: -8px; }
 /* A borracha fica afastada dos pincéis (pode bugar e entrar neles). */
 .wp-tool + .wp-tool--eraser { margin-top: 16px; }
+/* Sprites pixel-art (72×22, ampliados 3×) ocupam mais a altura → menos sobreposição. */
+.tool-rail__stack.is-pixel .wp-tool + .wp-tool { margin-top: -2px; }
+.tool-rail__stack.is-pixel .wp-tool + .wp-tool--eraser { margin-top: 12px; }
 .wp-tool:hover { transform: translateX(-12px); }
 .wp-tool.is-active { transform: translateX(-26px); z-index: 2; }
 

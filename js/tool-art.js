@@ -24,6 +24,16 @@ function loadImage(src) {
   return p;
 }
 
+/**
+ * Cinza-chave com tolerância: alguns browsers (Brave, Firefox anti-fingerprint)
+ * somam um ruído mínimo aos pixels lidos do canvas — comparar valores exatos
+ * deixaria pontinhos cinza soltos no corpo da ferramenta.
+ */
+function nearGray(r, g, b, v, tol = 10) {
+  return Math.abs(r - v) <= tol && Math.abs(g - v) <= tol && Math.abs(b - v) <= tol
+    && Math.abs(r - g) <= 12 && Math.abs(g - b) <= 12;
+}
+
 function parseHex(hex) {
   let h = hex.replace('#', '');
   if (h.length === 3) h = h.split('').map((c) => c + c).join('');
@@ -46,6 +56,7 @@ export async function getTintedToolUrl(tool, color, theme = 'light') {
   const [cr, cg, cb] = parseHex(color);
   const dark = theme === 'dark';
   const isEraser = tool.key === 'eraser' || tool.tool === 'eraser';
+  const keyed = tool.img.includes('/pixel/'); // só os sprites pixel-art usam cinzas-chave
   const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const px = data.data;
 
@@ -65,7 +76,12 @@ export async function getTintedToolUrl(tool, color, theme = 'light') {
       continue;
     }
 
-    if (isWhite) {
+    // Cinzas-chave dos sprites pixel-art: brilho e sombra da cor escolhida.
+    if (keyed && nearGray(r, g, b, 232)) {
+      px[i] = cr + (255 - cr) * 0.45; px[i + 1] = cg + (255 - cg) * 0.45; px[i + 2] = cb + (255 - cb) * 0.45;
+    } else if (keyed && nearGray(r, g, b, 162)) {
+      px[i] = cr * 0.68; px[i + 1] = cg * 0.68; px[i + 2] = cb * 0.68;
+    } else if (isWhite) {
       px[i] = cr; px[i + 1] = cg; px[i + 2] = cb;  // branco → cor escolhida (chapado)
     } else if (isBlack) {
       if (dark) { px[i] = px[i + 1] = px[i + 2] = 255; } // contorno → branco no escuro

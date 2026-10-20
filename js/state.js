@@ -1,4 +1,6 @@
-const A = 'assets/tools';
+/** Prévia dos sprites pixel-art: abrir o app com `?pixel` no endereço. */
+export const PIXEL_TOOLS = new URLSearchParams(location.search).has('pixel');
+const A = PIXEL_TOOLS ? 'assets/tools/pixel' : 'assets/tools';
 
 /**
  * Lista de ferramentas da barra lateral.
