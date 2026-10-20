@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>RetroBit</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=VT323&family=Covered+By+Your+Grace&display=swap" rel="stylesheet">
@@ -29,7 +30,7 @@
       <p class="splash__sub">uma ferramenta de desenho com traço tremido</p>
       <button type="button" class="splash__go" id="btn-start">Vamos desenhar!</button>
     </div>
-    <span class="splash__ver">v1.3</span>
+    <span class="splash__ver">v1.4</span>
     <p class="splash__credit">desenvolvido por Nicolas Vieira</p>
   </div>
 
@@ -84,6 +85,7 @@
         <div class="canvas-frame" id="canvas-frame">
           <canvas id="main-canvas" aria-label="Área de desenho"></canvas>
           <canvas id="overlay-canvas" aria-hidden="true"></canvas>
+          <div id="crop-hint" class="crop-hint" hidden>arraste para recortar · Esc cancela</div>
           <div id="canvas-cursor" class="canvas-cursor" hidden aria-hidden="true"></div>
         </div>
       </div>
@@ -91,7 +93,7 @@
 
     <aside class="tool-rail">
       <nav class="tool-rail__stack" id="tool-list"></nav>
-      <button type="button" class="obliterate" id="btn-clear" title="obliterar tudo"></button>
+      <button type="button" class="obliterate" id="btn-clear" title="obliterar camada"></button>
     </aside>
 
     <footer class="dock">
@@ -101,6 +103,7 @@
       <button type="button" class="paper-btn" id="btn-crop">Crop</button>
       <button type="button" class="paper-btn paper-btn--icon" id="btn-undo" title="desfazer (Ctrl+Z)">↶</button>
       <button type="button" class="paper-btn paper-btn--icon" id="btn-redo" title="refazer (Ctrl+Y)">↷</button>
+      <button type="button" class="paper-btn paper-btn--icon" id="btn-sound" title="desligar som" aria-pressed="false">♪</button>
     </footer>
   </div>
 
@@ -192,7 +195,7 @@
         <input type="text" class="rename-win__input" id="rename-input" maxlength="40" spellcheck="false">
         <div class="rename-win__foot">
           <button type="button" class="ui-btn" id="rename-cancel">Cancelar</button>
-          <button type="button" class="ui-btn ui-btn--go" id="rename-confirm">Guardar</button>
+          <button type="button" class="ui-btn ui-btn--go" id="rename-confirm">Salvar</button>
         </div>
       </div>
     </div>
@@ -206,10 +209,42 @@
         <button type="button" class="win__close" id="del-close" aria-label="Fechar">×</button>
       </div>
       <div class="del-win__body">
-        <p class="del-win__msg">Apagar &ldquo;<span id="del-name"></span>&rdquo;?<br><span class="del-win__sub">Isto não pode ser desfeito.</span></p>
+        <p class="del-win__msg">Apagar &ldquo;<span id="del-name"></span>&rdquo;?<br><span class="del-win__sub">Isso não pode ser desfeito.</span></p>
         <div class="del-win__foot">
           <button type="button" class="ui-btn" id="del-cancel">Cancelar</button>
           <button type="button" class="ui-btn ui-btn--danger" id="del-confirm">Apagar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: exportar (GIF animado ou PNG) ───────────── -->
+  <div class="modal-backdrop" id="export-modal" hidden>
+    <div class="win proj-win">
+      <div class="win__bar">
+        <span>exportar</span>
+        <button type="button" class="win__close" id="export-close" aria-label="Fechar">×</button>
+      </div>
+      <div class="proj-win__body">
+        <button type="button" class="proj-action" id="export-gif">GIF animado <span class="proj-action__sub">— tremendo</span></button>
+        <button type="button" class="proj-action" id="export-png">Imagem PNG <span class="proj-action__sub">— parada</span></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Modal: sair sem salvar ─────────────────────────── -->
+  <div class="modal-backdrop" id="leave-modal" hidden>
+    <div class="win del-win">
+      <div class="win__bar">
+        <span>sair do desenho</span>
+        <button type="button" class="win__close" id="leave-close" aria-label="Fechar">×</button>
+      </div>
+      <div class="del-win__body">
+        <p class="del-win__msg">Sair sem salvar?<br><span class="del-win__sub">As alterações deste desenho vão se perder.</span></p>
+        <div class="del-win__foot">
+          <button type="button" class="ui-btn" id="leave-cancel">Cancelar</button>
+          <button type="button" class="ui-btn ui-btn--danger" id="leave-discard">Sair</button>
+          <button type="button" class="ui-btn ui-btn--go" id="leave-save">Salvar e sair</button>
         </div>
       </div>
     </div>
@@ -250,7 +285,7 @@
         <input type="text" class="rename-win__input" id="layer-rename-input" maxlength="24" spellcheck="false">
         <div class="rename-win__foot">
           <button type="button" class="ui-btn" id="layer-rename-cancel">Cancelar</button>
-          <button type="button" class="ui-btn ui-btn--go" id="layer-rename-confirm">Guardar</button>
+          <button type="button" class="ui-btn ui-btn--go" id="layer-rename-confirm">Salvar</button>
         </div>
       </div>
     </div>

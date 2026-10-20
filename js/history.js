@@ -5,10 +5,11 @@
  * (projetos antigos podem ter só { paths, w, h }).
  */
 export class History {
-  constructor(max = 80) {
+  constructor(max = 80, onChange = null) {
     this.undoStack = [];
     this.redoStack = [];
     this.max = max;
+    this.onChange = onChange; // avisado a cada alteração do documento (ex.: marcar "não salvo")
   }
 
   /** Regista o estado ANTES de uma alteração. Limpa o stack de redo. */
@@ -16,12 +17,14 @@ export class History {
     this.undoStack.push(entry);
     if (this.undoStack.length > this.max) this.undoStack.shift();
     this.redoStack = [];
+    this.onChange?.();
   }
 
   /** Devolve a entrada a restaurar (ou null). `current` vai para o redo. */
   undo(current) {
     if (!this.undoStack.length) return null;
     this.redoStack.push(current);
+    this.onChange?.();
     return this.undoStack.pop();
   }
 
@@ -29,6 +32,7 @@ export class History {
   redo(current) {
     if (!this.redoStack.length) return null;
     this.undoStack.push(current);
+    this.onChange?.();
     return this.redoStack.pop();
   }
 

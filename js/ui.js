@@ -1,7 +1,10 @@
 import { TOOLS, SHAPES, BRUSH_SIZES, OPACITIES, RESOLUTIONS, state } from './state.js';
 import { getTintedToolUrl } from './tool-art.js';
-import { playSwitch, playStart, resumeAudio } from './audio.js';
+import { playSwitch, playStart, resumeAudio, setMuted, isMuted } from './audio.js';
 import { listProjects, deleteProject, renameProject, getProject } from './projects.js';
+import { escapeHtml } from './util.js';
+
+const MUTE_KEY = 'retrobit-muted';
 
 /* ── Paleta partilhada (cor da ferramenta e cor do fundo) ── */
 function hslToHex(h, s, l) {
@@ -35,7 +38,12 @@ export function createUI(callbacks) {
     btnClear: $('btn-clear'),
     btnSave: $('btn-save'), btnExportGif: $('btn-export-gif'),
     btnBackground: $('btn-background'), btnCrop: $('btn-crop'),
-    btnUndo: $('btn-undo'), btnRedo: $('btn-redo'),
+    btnUndo: $('btn-undo'), btnRedo: $('btn-redo'), btnSound: $('btn-sound'),
+    cropHint: $('crop-hint'),
+    exportModal: $('export-modal'), exportClose: $('export-close'),
+    exportGif: $('export-gif'), exportPng: $('export-png'),
+    leaveModal: $('leave-modal'), leaveClose: $('leave-close'), leaveCancel: $('leave-cancel'),
+    leaveDiscard: $('leave-discard'), leaveSave: $('leave-save'),
     btnMirrorH: $('btn-mirror-h'), btnMirrorV: $('btn-mirror-v'),
     btnShapeRect: $('btn-shape-rect'), btnShapeEllipse: $('btn-shape-ellipse'), btnShapeLine: $('btn-shape-line'),
     colorModal: $('color-modal'), colorGrid: $('color-grid'), colorTitle: $('color-win-title'),
@@ -55,11 +63,14 @@ export function createUI(callbacks) {
   let colorTargetKey = null;
   let colorTargetShapeKey = null;
   let menuTargetId = null;
+  let irisBusy = false;
 
   /* ── Transição íris pixelada ────────────────────────────────
      Desenha um círculo numa grelha de baixa resolução (~84px) que o CSS amplia
      com image-rendering:pixelated → círculo chunky, a crescer aos saltos. */
   function iris(swap) {
+    if (irisBusy) return; // evita que um duplo clique troque de tela duas vezes
+    irisBusy = true;
     const c = els.wipe;
     c.hidden = false;
     const W = 84;
@@ -85,7 +96,7 @@ export function createUI(callbacks) {
     };
     const reveal = () => {
       step--;
-      if (step <= 0) { ctx.clearRect(0, 0, W, H); c.hidden = true; return; }
+      if (step <= 0) { ctx.clearRect(0, 0, W, H); c.hidden = true; irisBusy = false; return; }
       draw(maxR * step / steps);
       setTimeout(reveal, dt);
     };
@@ -113,19 +124,20 @@ export function createUI(callbacks) {
           <div class="tile__thumb">${thumb}
             <button type="button" class="tile__menu" data-menu="${p.id}" title="renomear ou excluir">✎</button>
           </div>
-          <span class="tile__name">${p.name}</span>
+          <span class="tile__name">${escapeHtml(p.name)}</span>
         </div>`);
     }
     els.galleryGrid.innerHTML = tiles.join('');
 
     els.galleryGrid.querySelector('[data-new]')?.addEventListener('click', () => {
+      if (irisBusy) return;
       resumeAudio();
       iris(() => { callbacks.onNewProject?.(); showOnly(els.app); callbacks.onAppReady?.(); });
       playStart();
     });
     els.galleryGrid.querySelectorAll('[data-open]').forEach((tile) => {
       tile.addEventListener('click', (e) => {
-        if (e.target.closest('[data-menu]')) return;
+        if (e.target.closest('[data-menu]') || irisBusy) return;
         resumeAudio();
         const id = tile.dataset.open;
         iris(() => { callbacks.onOpenProject?.(id); showOnly(els.app); callbacks.onAppReady?.(); });
@@ -396,13 +408,65 @@ export function createUI(callbacks) {
       `<button type="button" class="res-opt" data-res="${i}">
         <span class="res-opt__name">${r.label}</span>
         <span class="res-opt__dim">${r.w} × ${r.h}</span>
-      </button>`).join('');
-    els.resList.querySelectorAll('.res-opt').forEach((b) => {
+      </button>`).join('') + `
+      <button type="button" class="res-opt res-opt--crop" data-crop="1">
+        <span class="res-opt__name">recortar área</span>
+        <span class="res-opt__dim">arrastar ✂</span>
+      </button>`;
+    els.resList.querySelectorAll('[data-res]').forEach((b) => {
       b.addEventListener('click', () => {
         callbacks.onSetResolution?.(RESOLUTIONS[+b.dataset.res]);
         els.resModal.hidden = true;
       });
     });
+    els.resList.querySelector('[data-crop]').addEventListener('click', () => {
+      els.resModal.hidden = true;
+      callbacks.onStartCrop?.();
+      setCropHint(true);
+    });
+  }
+
+  /** Aviso sobre a tela enquanto o modo recorte está ativo. */
+  function setCropHint(on) {
+    if (els.cropHint) els.cropHint.hidden = !on;
+  }
+  function cancelCrop() {
+    callbacks.onCancelCrop?.();
+    setCropHint(false);
+  }
+
+  /* ── Som ligado/desligado (lembrado entre sessões) ──────── */
+  function applySound(muted) {
+    setMuted(muted);
+    els.btnSound.classList.toggle('is-off', muted);
+    els.btnSound.title = muted ? 'ligar som' : 'desligar som';
+    els.btnSound.setAttribute('aria-pressed', String(muted));
+  }
+  function toggleSound() {
+    const muted = !isMuted();
+    applySound(muted);
+    try { localStorage.setItem(MUTE_KEY, muted ? '1' : '0'); } catch { /* sem storage */ }
+  }
+
+  /* ── Sair da tela de desenho (avisa se houver alterações) ── */
+  function goToGallery() {
+    cancelCrop();
+    iris(() => { renderGallery(); showOnly(els.gallery); });
+  }
+  function requestLeave() {
+    if (callbacks.isDirty?.()) els.leaveModal.hidden = false;
+    else goToGallery();
+  }
+
+  function save() {
+    const ok = callbacks.onSave?.() !== false;
+    flash(els.btnSave, ok ? 'Salvo!' : 'Sem espaço!');
+    return ok;
+  }
+
+  function closeAllModals() {
+    [els.colorModal, els.bgModal, els.resModal, els.projModal, els.renameModal,
+      els.delModal, els.exportModal, els.leaveModal].forEach((m) => { m.hidden = true; });
   }
 
   function bindEvents() {
@@ -411,19 +475,32 @@ export function createUI(callbacks) {
       iris(() => { renderGallery(); showOnly(els.gallery); });
     });
 
-    els.btnBack.addEventListener('click', () => {
-      iris(() => { renderGallery(); showOnly(els.gallery); });
+    els.btnBack.addEventListener('click', requestLeave);
+
+    els.leaveClose.addEventListener('click', () => { els.leaveModal.hidden = true; });
+    els.leaveCancel.addEventListener('click', () => { els.leaveModal.hidden = true; });
+    els.leaveModal.addEventListener('click', (e) => { if (e.target === els.leaveModal) els.leaveModal.hidden = true; });
+    els.leaveDiscard.addEventListener('click', () => { els.leaveModal.hidden = true; goToGallery(); });
+    els.leaveSave.addEventListener('click', () => {
+      els.leaveModal.hidden = true;
+      if (save()) goToGallery();
     });
+
+    els.btnSound.addEventListener('click', toggleSound);
 
     const undo = () => callbacks.onUndo?.();
     const redo = () => callbacks.onRedo?.();
     els.btnUndo.addEventListener('click', undo);
     els.btnRedo.addEventListener('click', redo);
     els.btnClear.addEventListener('click', () => callbacks.onClear?.());
-    els.btnSave.addEventListener('click', () => { callbacks.onSave?.(); flash(els.btnSave, 'Guardado!'); });
-    els.btnExportGif.addEventListener('click', () => callbacks.onExportGif?.());
+    els.btnSave.addEventListener('click', save);
+    els.btnExportGif.addEventListener('click', () => { els.exportModal.hidden = false; });
+    els.exportClose.addEventListener('click', () => { els.exportModal.hidden = true; });
+    els.exportModal.addEventListener('click', (e) => { if (e.target === els.exportModal) els.exportModal.hidden = true; });
+    els.exportGif.addEventListener('click', () => { els.exportModal.hidden = true; callbacks.onExportGif?.(); });
+    els.exportPng.addEventListener('click', () => { els.exportModal.hidden = true; callbacks.onExportPng?.(); });
     els.btnBackground.addEventListener('click', openBgModal);
-    els.btnCrop.addEventListener('click', () => { els.resModal.hidden = false; });
+    els.btnCrop.addEventListener('click', () => { cancelCrop(); els.resModal.hidden = false; });
 
     els.btnMirrorH.addEventListener('click', () => {
       state.mirrorH = !state.mirrorH;
@@ -488,11 +565,17 @@ export function createUI(callbacks) {
 
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        els.colorModal.hidden = true; els.bgModal.hidden = true; els.resModal.hidden = true;
-        els.projModal.hidden = true; els.renameModal.hidden = true; els.delModal.hidden = true;
+        closeAllModals();
+        cancelCrop();
+        return;
       }
-      if (e.ctrlKey && e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
-      if ((e.ctrlKey && e.key === 'y') || (e.ctrlKey && e.shiftKey && e.key === 'z')) { e.preventDefault(); redo(); }
+      // Atalhos só na tela de desenho e fora de campos de texto (lá o Ctrl+Z é do input).
+      if (els.app.hidden || e.target.closest?.('input, textarea')) return;
+      const mod = e.ctrlKey || e.metaKey;
+      const k = e.key.toLowerCase();
+      if (mod && k === 'z' && !e.shiftKey) { e.preventDefault(); undo(); }
+      else if (mod && (k === 'y' || (k === 'z' && e.shiftKey))) { e.preventDefault(); redo(); }
+      else if (mod && k === 's') { e.preventDefault(); save(); }
     });
   }
 
@@ -511,8 +594,11 @@ export function createUI(callbacks) {
     buildResList();
     els.btnClear.innerHTML = '<img class="obliterate__img" src="assets/dynamite.png" alt="obliterar" draggable="false">';
     syncActiveSettings();
+    let muted = false;
+    try { muted = localStorage.getItem(MUTE_KEY) === '1'; } catch { /* sem storage */ }
+    applySound(muted);
     bindEvents();
   }
 
-  return { init, selectTool, selectShape, applyToolColors };
+  return { init, selectTool, selectShape, applyToolColors, setCropHint };
 }

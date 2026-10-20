@@ -1,10 +1,7 @@
 import { state, TOOL_DEFS, getActiveLayer } from './state.js';
-import { getCanvasBg } from './theme.js';
 import { densify, wob } from './wiggle.js';
 import { mirrorFlips, mapX, mapY } from './mirror.js';
 import { shapeOutline } from './shapes.js';
-
-const MIN_POINT_STEP = 2;
 
 /**
  * Loop de render — tremor ~12fps; traço ativo repintado em fast-path (~60fps).
@@ -20,6 +17,7 @@ export class Renderer {
     this.needsDraw = true;
     this._layerCaches = new Map();
     this._activeStatic = null;
+    this._activeLive = null;
     this._activeStaticJitter = -1;
     this._activeStaticReady = false;
   }
@@ -86,6 +84,25 @@ export class Renderer {
     return entry.canvas;
   }
 
+  /** Canvas da camada já desenhada (jitter atual) — usado nas miniaturas. */
+  layerCanvas(layer) {
+    const cached = this._layerCaches.get(layer.id);
+    if (cached?.jitter === this.jitterFrame) return cached.canvas;
+    return this._bakeLayer(layer);
+  }
+
+  /** Canvas de trabalho da camada ativa durante o traço (estático + traço vivo). */
+  _liveCanvas() {
+    const W = state.canvasWidth;
+    const H = state.canvasHeight;
+    if (!this._activeLive) this._activeLive = document.createElement('canvas');
+    if (this._activeLive.width !== W || this._activeLive.height !== H) {
+      this._activeLive.width = W;
+      this._activeLive.height = H;
+    }
+    return this._activeLive;
+  }
+
   _loop(t) {
     if (!this.running) return;
     requestAnimationFrame((x) => this._loop(x));
@@ -118,8 +135,14 @@ export class Renderer {
         ctx.save();
         ctx.globalAlpha = layer.opacity;
         if (layer.id === active?.id) {
-          ctx.drawImage(this._activeStatic, 0, 0);
-          this._drawPath(ctx, state.currentPath);
+          // Compõe a camada à parte: a borracha (destination-out) e o marcador
+          // (multiply) só afetam a própria camada, igual ao resultado final.
+          const live = this._liveCanvas();
+          const lc = live.getContext('2d');
+          lc.clearRect(0, 0, live.width, live.height);
+          lc.drawImage(this._activeStatic, 0, 0);
+          this._drawPath(lc, state.currentPath);
+          ctx.drawImage(live, 0, 0);
         } else {
           const cached = this._layerCaches.get(layer.id);
           if (cached?.jitter === this.jitterFrame) {
@@ -163,7 +186,8 @@ export class Renderer {
 
   _drawPath(ctx, path) {
     const def = TOOL_DEFS[path.tool] || TOOL_DEFS.pen;
-    const color = def.eraser ? getCanvasBg() : path.color;
+    // A borracha apaga (destination-out) dentro da camada — a cor é irrelevante.
+    const color = def.eraser ? '#000000' : path.color;
     const f = this.jitterFrame;
     const W = state.canvasWidth;
     const H = state.canvasHeight;
@@ -215,7 +239,8 @@ export class Renderer {
     }));
 
     let composite = def.composite;
-    if (def.marker && state.theme === 'dark') composite = 'screen';
+    if (def.eraser) composite = 'destination-out';
+    else if (def.marker && state.theme === 'dark') composite = 'screen';
 
     ctx.save();
     const layerAlpha = ctx.globalAlpha;

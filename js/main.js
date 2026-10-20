@@ -9,6 +9,7 @@ import { initTheme } from './theme.js';
 import { playBoom } from './audio.js';
 import { encodeGIF } from './gif.js';
 import { getProject, saveProject, makeProjectId, nextProjectName } from './projects.js';
+import { mirrorFlips, mapX, mapY } from './mirror.js';
 
 const engine = new CanvasEngine({
   mainCanvas: document.getElementById('main-canvas'),
@@ -16,7 +17,8 @@ const engine = new CanvasEngine({
 });
 
 const renderer = new Renderer(engine);
-const history = new History();
+let dirty = false; // há alterações desde o último "Salvar"?
+const history = new History(80, () => { dirty = true; });
 let tools = null;
 let ui = null;
 let layersPanel = null;
@@ -94,6 +96,63 @@ function scaleAllPaths(sx, sy) {
   }
 }
 
+/**
+ * Converte um traço espelhado em cópias "reais" (sem espelho) — necessário antes
+ * de recortar, porque o espelho é sempre calculado a partir do centro da tela.
+ */
+function expandMirror(p, W, H) {
+  if (!p.mirrorH && !p.mirrorV) return [p];
+  return mirrorFlips(p.mirrorH, p.mirrorV).map(({ flipX, flipY }) => {
+    const mx = (x) => mapX(x, W, flipX);
+    const my = (y) => mapY(y, H, flipY);
+    const copy = { ...p, mirrorH: false, mirrorV: false };
+    if (p.shape) {
+      copy.x0 = mx(p.x0); copy.y0 = my(p.y0); copy.x1 = mx(p.x1); copy.y1 = my(p.y1);
+    }
+    copy.points = (p.points || []).map((pt) => ({ ...pt, x: mx(pt.x), y: my(pt.y) }));
+    copy.particles = p.particles ? p.particles.map((q) => ({ x: mx(q.x), y: my(q.y) })) : null;
+    return copy;
+  });
+}
+
+/** Recorta a tela para `rect`: desloca os traços e muda a resolução. */
+function applyCrop(rect) {
+  history.record(snapshotPaths());
+  const W = state.canvasWidth;
+  const H = state.canvasHeight;
+  for (const layer of state.layers) {
+    layer.paths = layer.paths.flatMap((p) => expandMirror(p, W, H));
+    for (const p of layer.paths) {
+      if (p.shape) { p.x0 -= rect.x; p.y0 -= rect.y; p.x1 -= rect.x; p.y1 -= rect.y; }
+      for (const pt of p.points) { pt.x -= rect.x; pt.y -= rect.y; }
+      if (p.particles) for (const q of p.particles) { q.x -= rect.x; q.y -= rect.y; }
+    }
+  }
+  state.canvasWidth = rect.w;
+  state.canvasHeight = rect.h;
+  tools.cancelCropMode();
+  ui.setCropHint(false);
+  engine.init(rect.w, rect.h);
+  fitFrame();
+  layersPanel?.render();
+  renderer.invalidate();
+}
+
+/** Cópia das camadas com coordenadas arredondadas (0.1px) → ocupa menos no localStorage. */
+function compactLayers(layers) {
+  const r = (v) => Math.round(v * 10) / 10;
+  return layers.map((l) => ({
+    ...l,
+    paths: l.paths.map((p) => {
+      const out = { ...p };
+      if (p.shape) { out.x0 = r(p.x0); out.y0 = r(p.y0); out.x1 = r(p.x1); out.y1 = r(p.y1); }
+      out.points = (p.points || []).map((pt) => ({ x: r(pt.x), y: r(pt.y), p: r(pt.p ?? 0.5) }));
+      if (p.particles) out.particles = p.particles.map((q) => ({ x: r(q.x), y: r(q.y) }));
+      return out;
+    }),
+  }));
+}
+
 /** Miniatura (dataURL) do estado atual do canvas, para a galeria. */
 function makeThumb() {
   const tw = 240;
@@ -150,7 +209,19 @@ function hideCursor() {
 
 function bindCanvas() {
   const canvas = engine.mainCanvas;
+  let activePointer = null; // só um ponteiro desenha de cada vez (evita 2 dedos)
+  const finish = (e, cancelled) => {
+    if (e.pointerId !== activePointer) return;
+    activePointer = null;
+    if (cancelled) tools.onPointerCancel();
+    else tools.onPointerUp(e, engine.getCanvasPos(e));
+    layersPanel?.render();
+    renderer.invalidate();
+    if (canvas.hasPointerCapture(e.pointerId)) canvas.releasePointerCapture(e.pointerId);
+  };
   canvas.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 || activePointer !== null) return; // só botão principal / caneta / dedo
+    activePointer = e.pointerId;
     canvas.setPointerCapture(e.pointerId);
     scheduleCursor(e);
     const pos = engine.getCanvasPos(e);
@@ -158,16 +229,13 @@ function bindCanvas() {
   });
   canvas.addEventListener('pointermove', (e) => {
     scheduleCursor(e);
+    if (activePointer !== null && e.pointerId !== activePointer) return;
     const pos = engine.getCanvasPos(e);
     tools.onPointerMove(e, pos);
   });
   canvas.addEventListener('pointerleave', hideCursor);
-  canvas.addEventListener('pointerup', (e) => {
-    tools.onPointerUp(e, engine.getCanvasPos(e));
-    layersPanel?.render();
-    renderer.invalidate();
-    canvas.releasePointerCapture(e.pointerId);
-  });
+  canvas.addEventListener('pointerup', (e) => finish(e, false));
+  canvas.addEventListener('pointercancel', (e) => finish(e, true));
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 
@@ -180,6 +248,7 @@ function boot() {
       state.canvasWidth = RESOLUTIONS[0].w;
       state.canvasHeight = RESOLUTIONS[0].h;
       history.clear();
+      dirty = false;
       layersPanel?.render();
     },
 
@@ -192,31 +261,49 @@ function boot() {
       state.canvasHeight = p.h || RESOLUTIONS[0].h;
       state.currentProjectId = id;
       history.clear();
+      dirty = false;
       layersPanel?.render();
     },
 
     onAppReady: () => {
+      tools.cancelCropMode();
+      ui.setCropHint(false);
       initCanvas();
       layersPanel?.render();
     },
 
+    /** Devolve true se salvou (false = localStorage cheio/indisponível). */
     onSave: () => {
       const id = state.currentProjectId || makeProjectId();
       const existing = getProject(id);
-      saveProject({
+      const saved = saveProject({
         id,
         name: existing ? existing.name : nextProjectName(),
         w: state.canvasWidth,
         h: state.canvasHeight,
         bgColor: state.bgColor,
-        layers: state.layers,
+        layers: compactLayers(state.layers),
         activeLayerId: state.activeLayerId,
         thumb: makeThumb(),
       });
+      if (!saved) return false;
       state.currentProjectId = id;
+      dirty = false;
+      return true;
     },
 
-    onBgChange: () => renderer.invalidate(),
+    isDirty: () => dirty,
+
+    onBgChange: () => {
+      dirty = true;
+      renderer.invalidate();
+      layersPanel?.render();
+    },
+
+    onStartCrop: () => tools.startCropMode(),
+    onCancelCrop: () => tools.cancelCropMode(),
+
+    onExportPng: () => engine.exportPNG(),
 
     onSetResolution: (res) => {
       history.record(snapshotPaths());
@@ -267,6 +354,7 @@ function boot() {
     onClear: () => {
       const layer = getActiveLayer();
       if (!layer) return;
+      if (layer.locked) { layersPanel?.flashLocked(); return; }
       history.record(snapshotPaths());
       const app = document.getElementById('app');
       app.classList.add('rb-shake');
@@ -282,11 +370,15 @@ function boot() {
     onShapeChange: () => renderer.invalidate(),
   });
 
-  tools = createToolHandlers(engine, history, renderer);
+  tools = createToolHandlers(engine, history, renderer, {
+    onLocked: () => layersPanel?.flashLocked(),
+    onCrop: applyCrop,
+  });
 
   layersPanel = createLayersPanel({
     onChange: () => renderer.invalidate(),
     onHistory: () => history.record(snapshotPaths()),
+    getLayerCanvas: (layer) => renderer.layerCanvas(layer),
   });
 
   initTheme();

@@ -22,9 +22,11 @@ function readAll() {
 function writeAll(list) {
   try {
     localStorage.setItem(KEY, JSON.stringify(list));
+    return true;
   } catch (e) {
-    // localStorage cheio ou indisponível — falha silenciosa.
-    console.warn('RetroBit: não foi possível guardar', e);
+    // localStorage cheio ou indisponível.
+    console.warn('RetroBit: não foi possível salvar', e);
+    return false;
   }
 }
 
@@ -37,7 +39,7 @@ export function getProject(id) {
   return readAll().find((p) => p.id === id) || null;
 }
 
-/** Cria ou atualiza um projeto (por id). Devolve o projeto guardado. */
+/** Cria ou atualiza um projeto (por id). Devolve o projeto salvo, ou null se falhar. */
 export function saveProject(project) {
   const list = readAll();
   const now = Date.now();
@@ -45,8 +47,7 @@ export function saveProject(project) {
   const record = { ...project, updatedAt: now };
   if (idx >= 0) list[idx] = record;
   else list.push(record);
-  writeAll(list);
-  return record;
+  return writeAll(list) ? record : null;
 }
 
 export function deleteProject(id) {

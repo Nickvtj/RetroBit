@@ -41,29 +41,6 @@ export class CanvasEngine {
     drawShapePreview(this.overlayCtx, draft, this.getStrokeColor());
   }
 
-  /** Anel do cursor (dois traços preto+branco para ser visível em qualquer fundo). */
-  drawCursorRing(x, y, r) {
-    this.drawCursorRings([{ x, y }], r);
-  }
-
-  drawCursorRings(positions, r) {
-    const ctx = this.overlayCtx;
-    ctx.clearRect(0, 0, this.width, this.height);
-    ctx.save();
-    ctx.lineWidth = 1;
-    for (const { x, y } of positions) {
-      ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-      ctx.beginPath();
-      ctx.arc(x, y, r + 1, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.strokeStyle = 'rgba(0,0,0,0.9)';
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
   getCanvasPos(e) {
     const rect = this.mainCanvas.getBoundingClientRect();
     const scaleX = this.width / rect.width;
@@ -96,21 +73,11 @@ export class CanvasEngine {
   }
 
   getCropRect(x0, y0, x1, y1) {
-    const x = Math.floor(Math.min(x0, x1));
-    const y = Math.floor(Math.min(y0, y1));
-    const w = Math.max(1, Math.ceil(Math.abs(x1 - x0)));
-    const h = Math.max(1, Math.ceil(Math.abs(y1 - y0)));
+    const x = Math.max(0, Math.floor(Math.min(x0, x1)));
+    const y = Math.max(0, Math.floor(Math.min(y0, y1)));
+    const w = Math.min(this.width - x, Math.max(1, Math.ceil(Math.abs(x1 - x0))));
+    const h = Math.min(this.height - y, Math.max(1, Math.ceil(Math.abs(y1 - y0))));
     return { x, y, w, h };
-  }
-
-  /** Pré-visualização do crop: lê os pixels do frame atual do canvas. */
-  buildCropPreview(rect) {
-    const preview = document.createElement('canvas');
-    preview.width = rect.w;
-    preview.height = rect.h;
-    const pctx = preview.getContext('2d');
-    pctx.drawImage(this.mainCanvas, rect.x, rect.y, rect.w, rect.h, 0, 0, rect.w, rect.h);
-    return preview;
   }
 
   exportPNG() {

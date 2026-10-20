@@ -107,7 +107,6 @@ export const state = {
   canvasWidth: 720,
   canvasHeight: 540,
 
-  cropRect: null,
   isCropping: false,
   cropStart: null,
 
@@ -237,22 +236,4 @@ export function resetDrawing() {
   state.isShapeDrawing = false;
   state.shapeDraft = null;
   state.currentPath = null;
-}
-
-export function calcCanvasSize() {
-  const railW = 300;   // rail mais larga → canetas deslizam sem tocar no canvas
-  const menubarH = 32;
-  const pad = 22;      // folga à volta do canvas
-  const maxW = window.innerWidth - railW - pad * 2;
-  const maxH = window.innerHeight - menubarH - pad * 2;
-  let w = maxW;
-  let h = Math.floor(w * 0.75);
-  if (h > maxH) {
-    h = maxH;
-    w = Math.floor(h / 0.75);
-  }
-  return {
-    w: Math.max(560, Math.floor(w)),
-    h: Math.max(440, Math.floor(h)),
-  };
 }

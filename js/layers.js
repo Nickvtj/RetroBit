@@ -1,8 +1,9 @@
 /**
  * Painel de camadas (estilo 8-bit) — à esquerda do quadro de desenho.
  */
-import { state, OPACITIES, createLayer, getLayerById, TOOL_DEFS } from './state.js';
+import { state, OPACITIES, createLayer, getLayerById } from './state.js';
 import { getCanvasBg } from './theme.js';
+import { escapeHtml } from './util.js';
 
 export function createLayersPanel(callbacks) {
   const $ = (id) => document.getElementById(id);
@@ -29,6 +30,7 @@ export function createLayersPanel(callbacks) {
 
   let menuLayerId = null;
   let dragId = null;
+  let deniedAt = 0; // momento do último aviso de "camada bloqueada" (sobrevive ao re-render)
 
   function nextLayerName() {
     const names = new Set(state.layers.map((l) => l.name));
@@ -52,7 +54,7 @@ export function createLayersPanel(callbacks) {
     recordHistory();
     const layer = createLayer(nextLayerName());
     const idx = state.layers.findIndex((l) => l.id === state.activeLayerId);
-    const insertAt = idx >= 0 ? idx : 0;
+    const insertAt = idx >= 0 ? idx + 1 : state.layers.length; // logo acima da ativa
     state.layers.splice(insertAt, 0, layer);
     state.activeLayerId = layer.id;
     render();
@@ -195,7 +197,7 @@ export function createLayersPanel(callbacks) {
     render();
   }
 
-  /** Miniatura 8-bit da camada (paths simplificados). */
+  /** Miniatura da camada: reduz o próprio render (borracha, espelho e spray incluídos). */
   function drawThumb(canvas, layer) {
     const w = canvas.width;
     const h = canvas.height;
@@ -203,52 +205,19 @@ export function createLayersPanel(callbacks) {
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = getCanvasBg();
     ctx.fillRect(0, 0, w, h);
-    const inkPaths = layer.paths.filter((p) => !TOOL_DEFS[p.tool]?.eraser);
-    if (!inkPaths.length) return;
-    const sx = w / state.canvasWidth;
-    const sy = h / state.canvasHeight;
+    const src = layer.paths.length ? callbacks.getLayerCanvas?.(layer) : null;
+    if (!src) return;
     ctx.save();
     ctx.globalAlpha = layer.opacity;
-    for (const path of inkPaths) {
-      const color = path.color || '#000';
-      ctx.strokeStyle = color;
-      ctx.fillStyle = color;
-      ctx.lineWidth = Math.max(1, path.size * sx);
-      if (path.shape) {
-        const x0 = path.x0 * sx;
-        const y0 = path.y0 * sy;
-        const x1 = path.x1 * sx;
-        const y1 = path.y1 * sy;
-        const left = Math.min(x0, x1);
-        const right = Math.max(x0, x1);
-        const top = Math.min(y0, y1);
-        const bottom = Math.max(y0, y1);
-        if (path.shape === 'rect') {
-          ctx.strokeRect(left, top, right - left, bottom - top);
-        } else if (path.shape === 'ellipse') {
-          ctx.beginPath();
-          ctx.ellipse((left + right) / 2, (top + bottom) / 2,
-            Math.max(0.5, (right - left) / 2), Math.max(0.5, (bottom - top) / 2), 0, 0, Math.PI * 2);
-          ctx.stroke();
-        } else {
-          ctx.beginPath();
-          ctx.moveTo(x0, y0);
-          ctx.lineTo(x1, y1);
-          ctx.stroke();
-        }
-        continue;
-      }
-      if (!path.points?.length) continue;
-      ctx.beginPath();
-      path.points.forEach((pt, i) => {
-        const x = pt.x * sx;
-        const y = pt.y * sy;
-        if (i) ctx.lineTo(x, y);
-        else ctx.moveTo(x, y);
-      });
-      ctx.stroke();
-    }
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(src, 0, 0, w, h);
     ctx.restore();
+  }
+
+  /** Feedback quando se tenta desenhar numa camada bloqueada. */
+  function flashLocked() {
+    deniedAt = performance.now();
+    render();
   }
 
   function render() {
@@ -258,12 +227,13 @@ export function createLayersPanel(callbacks) {
       const active = layer.id === state.activeLayerId ? ' is-active' : '';
       const hidden = layer.visible ? '' : ' is-hidden';
       const locked = layer.locked ? ' is-locked' : '';
+      const denied = active && performance.now() - deniedAt < 500 ? ' is-denied' : '';
       const eye = layer.visible ? '◉' : '○';
       return `
-        <div class="layer-row${active}${hidden}${locked}" data-id="${layer.id}" draggable="true">
+        <div class="layer-row${active}${hidden}${locked}${denied}" data-id="${layer.id}" draggable="true">
           <button type="button" class="layer-row__eye" data-eye="${layer.id}" title="visível">${eye}</button>
           <canvas class="layer-row__thumb" width="48" height="38" data-thumb="${layer.id}" aria-hidden="true"></canvas>
-          <span class="layer-row__name">${layer.name}</span>
+          <span class="layer-row__name">${escapeHtml(layer.name)}</span>
           <button type="button" class="layer-row__menu" data-menu="${layer.id}" title="opções">⋮</button>
         </div>`;
     }).join('');
@@ -348,5 +318,5 @@ export function createLayersPanel(callbacks) {
     render();
   }
 
-  return { init, render, addLayer };
+  return { init, render, addLayer, flashLocked };
 }

@@ -30,10 +30,11 @@ function addSprayParticles(path, x, y) {
   }
 }
 
-export function createToolHandlers(engine, history, renderer) {
+export function createToolHandlers(engine, history, renderer, hooks = {}) {
   function startStroke(pos, e) {
     const layer = getActiveLayer();
-    if (!layer || layer.locked) return;
+    if (!layer) return;
+    if (layer.locked) { hooks.onLocked?.(); return; }
     if (!layer.visible) layer.visible = true;
 
     const def = TOOL_DEFS[state.tool];
@@ -64,7 +65,8 @@ export function createToolHandlers(engine, history, renderer) {
 
   function startShape(pos) {
     const layer = getActiveLayer();
-    if (!layer || layer.locked) return;
+    if (!layer) return;
+    if (layer.locked) { hooks.onLocked?.(); return; }
     if (!layer.visible) layer.visible = true;
 
     const shape = SHAPES.find((s) => s.key === state.activeShapeKey);
@@ -147,7 +149,6 @@ export function createToolHandlers(engine, history, renderer) {
   return {
     onPointerDown(e, pos) {
       if (state.isCropping) {
-        state.isDrawing = true;
         state.cropStart = { x: pos.x, y: pos.y };
         return;
       }
@@ -160,8 +161,8 @@ export function createToolHandlers(engine, history, renderer) {
     },
 
     onPointerMove(e, pos) {
-      if (state.isCropping && state.isDrawing && state.cropStart) {
-        engine.drawCropSelection(state.cropStart.x, state.cropStart.y, pos.x, pos.y);
+      if (state.isCropping) {
+        if (state.cropStart) engine.drawCropSelection(state.cropStart.x, state.cropStart.y, pos.x, pos.y);
         return;
       }
       if (state.isShapeDrawing && state.shapeDraft) {
@@ -175,10 +176,13 @@ export function createToolHandlers(engine, history, renderer) {
     },
 
     onPointerUp(e, pos) {
-      if (state.isCropping && state.isDrawing && state.cropStart) {
-        state.cropRect = engine.getCropRect(state.cropStart.x, state.cropStart.y, pos.x, pos.y);
-        state.isDrawing = false;
+      if (state.isCropping) {
+        if (!state.cropStart) return;
+        const rect = engine.getCropRect(state.cropStart.x, state.cropStart.y, pos.x, pos.y);
         state.cropStart = null;
+        engine.clearOverlay();
+        if (rect.w < 40 || rect.h < 40) return; // seleção pequena demais → continua no modo recorte
+        hooks.onCrop?.(rect);
         return;
       }
       if (state.isShapeDrawing) {
@@ -196,23 +200,38 @@ export function createToolHandlers(engine, history, renderer) {
       resetDrawing();
     },
 
+    /** Interação interrompida (ex.: toque cancelado pelo sistema) — fecha o que estiver em curso. */
+    onPointerCancel() {
+      if (state.isCropping) {
+        state.cropStart = null;
+        engine.clearOverlay();
+        return;
+      }
+      if (state.isShapeDrawing) {
+        engine.clearOverlay();
+        history.discardLast();
+        resetDrawing();
+        return;
+      }
+      if (!state.isDrawing) return;
+      endStroke();
+      pruneNoopEraser();
+      renderer?.endLiveStroke();
+      resetDrawing();
+    },
+
     startCropMode() {
       state.isCropping = true;
-      state.cropRect = null;
+      state.cropStart = null;
       engine.clearOverlay();
       engine.mainCanvas.classList.add('is-crop');
     },
 
     cancelCropMode() {
       state.isCropping = false;
-      state.cropRect = null;
       state.cropStart = null;
       engine.clearOverlay();
       engine.mainCanvas.classList.remove('is-crop');
-    },
-
-    getCropRect() {
-      return state.cropRect;
     },
   };
 }
