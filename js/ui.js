@@ -1,4 +1,4 @@
-import { TOOLS, SHAPES, BRUSH_SIZES, OPACITIES, RESOLUTIONS, PIXEL_TOOLS, state } from './state.js';
+import { TOOLS, SHAPES, BRUSH_SIZES, OPACITIES, RESOLUTIONS, state } from './state.js';
 import { getTintedToolUrl } from './tool-art.js';
 import { playSwitch, playStart, resumeAudio, setMuted, isMuted } from './audio.js';
 import { listProjects, deleteProject, renameProject, getProject } from './projects.js';
@@ -197,7 +197,6 @@ export function createUI(callbacks) {
     }));
   }
   function buildToolList() {
-    els.toolList.classList.toggle('is-pixel', PIXEL_TOOLS);
     els.toolList.innerHTML = TOOLS.map((t) => {
       const active = t.key === state.activeKey ? ' is-active' : '';
       const solo = t.key === 'eraser' ? ' wp-tool--eraser' : '';
@@ -593,8 +592,7 @@ export function createUI(callbacks) {
     buildColorGrid(els.colorGrid, setToolColor);
     buildColorGrid(els.bgGrid, setBg);
     buildResList();
-    const dynamite = PIXEL_TOOLS ? 'assets/tools/pixel/dynamite.png' : 'assets/dynamite.png';
-    els.btnClear.innerHTML = `<img class="obliterate__img" src="${dynamite}" alt="obliterar" draggable="false">`;
+    els.btnClear.innerHTML = '<img class="obliterate__img" src="assets/tools/dynamite.png" alt="obliterar" draggable="false">';
     syncActiveSettings();
     let muted = false;
     try { muted = localStorage.getItem(MUTE_KEY) === '1'; } catch { /* sem storage */ }

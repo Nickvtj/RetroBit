@@ -1,12 +1,14 @@
 /**
- * Carregador dos sprites das ferramentas (arte PNG preto/branco, fundo
- * transparente, ponta à esquerda).
+ * Carregador dos sprites das ferramentas (pixel-art 72×22, fundo transparente,
+ * ponta à esquerda — gerados por scripts/pixel-sprites.py).
  *
- * Para o utilizador saber QUE COR cada ferramenta carrega, o CORPO (os pixels
- * brancos) é pintado com a cor escolhida. Usamos "colorize" — multiplicamos a
- * cor pela luminosidade original — para preservar a forma e o sombreado da arte
- * em vez de a achatar. O contorno preto mantém-se (branco no tema escuro) para
- * a silhueta continuar a ler-se. A borracha não é tingida.
+ * Para o utilizador saber QUE COR cada ferramenta carrega, o CORPO é pintado
+ * com a cor escolhida a partir de pixels-chave:
+ *   branco puro        → a cor escolhida
+ *   cinza ~232 (chave) → a cor clareada (brilho)
+ *   cinza ~162 (chave) → a cor escurecida (sombra)
+ * O contorno preto mantém-se e as restantes cores (metal, madeira) são
+ * "material" e ficam como estão. A borracha não é tingida.
  */
 
 const imageCache = new Map();
@@ -56,7 +58,6 @@ export async function getTintedToolUrl(tool, color, theme = 'light') {
   const [cr, cg, cb] = parseHex(color);
   const dark = theme === 'dark';
   const isEraser = tool.key === 'eraser' || tool.tool === 'eraser';
-  const keyed = tool.img.includes('/pixel/'); // só os sprites pixel-art usam cinzas-chave
   const data = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const px = data.data;
 
@@ -77,9 +78,9 @@ export async function getTintedToolUrl(tool, color, theme = 'light') {
     }
 
     // Cinzas-chave dos sprites pixel-art: brilho e sombra da cor escolhida.
-    if (keyed && nearGray(r, g, b, 232)) {
+    if (nearGray(r, g, b, 232)) {
       px[i] = cr + (255 - cr) * 0.45; px[i + 1] = cg + (255 - cg) * 0.45; px[i + 2] = cb + (255 - cb) * 0.45;
-    } else if (keyed && nearGray(r, g, b, 162)) {
+    } else if (nearGray(r, g, b, 162)) {
       px[i] = cr * 0.68; px[i + 1] = cg * 0.68; px[i + 2] = cb * 0.68;
     } else if (isWhite) {
       px[i] = cr; px[i + 1] = cg; px[i + 2] = cb;  // branco → cor escolhida (chapado)

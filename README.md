@@ -75,10 +75,12 @@ cd CyberPaint
 
 <table>
 <tr>
-<td width="230" align="center"><img src="docs/images/tools.png" alt="Barra de ferramentas: caneta, caneta fina, lápis, pincel, marcador, spray, borracha e a dinamite KABOOM" width="190"></td>
+<td width="230" align="center"><img src="docs/images/tools.png" alt="Barra de ferramentas em pixel-art: caneta, caneta fina, lápis, pincel, marcador, spray, borracha e a dinamite KABOOM" width="200"></td>
 <td>
 
-Cada ferramenta **guarda a sua própria cor, tamanho e opacidade**, e o desenho dela na barra é pintado com a cor escolhida. Assim você sabe na hora o que cada uma vai desenhar.
+Cada ferramenta **guarda a sua própria cor, tamanho e opacidade**, e o desenho dela na barra é pintado com a cor escolhida, com brilho e sombra. Assim você sabe na hora o que cada uma vai desenhar.
+
+Todas as ferramentas são **pixel-art desenhada pixel a pixel** na mesma grade, assim como o fundo quadriculado, para tudo parecer saído do mesmo videogame.
 
 | Ferramenta | Como desenha |
 | :-- | :-- |
@@ -245,8 +247,10 @@ RetroBit/
 ├── styles.css          → todo o visual 1-bit
 ├── assets/
 │   ├── favicon.svg     → ícone da aba
-│   ├── dynamite.png    → botão KABOOM!
-│   └── tools/          → desenhos das ferramentas (recoloridos em tempo real)
+│   └── tools/          → sprites pixel-art das ferramentas e da dinamite KABOOM!
+│       └── legacy/     → arte original das ferramentas (versão anterior)
+├── scripts/
+│   └── pixel-sprites.py → gera os sprites pixel-art (Python + Pillow)
 ├── docs/images/        → imagens deste README
 └── js/
     ├── main.js         → ponto de entrada: conecta todos os módulos
@@ -271,6 +275,7 @@ RetroBit/
 
 - **Sons 100% sintetizados:** cada ferramenta tem o seu "som de riscar", feito com ruído filtrado, que fica mais alto quanto mais rápido você desenha. O botão **♪** liga e desliga o som, e o app lembra da sua escolha.
 - **GIF sem bibliotecas:** o `gif.js` escreve o formato GIF89a byte a byte, com uma paleta fixa de 216 cores.
+- **Sprites gerados por código:** cada ferramenta é uma grade de 72×22 pixels descrita em [`scripts/pixel-sprites.py`](scripts/pixel-sprites.py), que o app amplia 3×. O branco vira a cor escolhida e dois cinzas especiais viram brilho e sombra. Para mudar um desenho, edite o script e rode `python scripts/pixel-sprites.py` (precisa do Pillow: `pip install pillow`).
 - **Pressão da caneta:** o pincel e o spray reagem à pressão de mesas digitalizadoras (Pointer Events).
 - **Toque:** aceita dedo e caneta. Só um ponteiro desenha de cada vez, para um segundo dedo não atrapalhar.
 

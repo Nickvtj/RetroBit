@@ -1,13 +1,11 @@
-/** Prévia dos sprites pixel-art: abrir o app com `?pixel` no endereço. */
-export const PIXEL_TOOLS = new URLSearchParams(location.search).has('pixel');
-const A = PIXEL_TOOLS ? 'assets/tools/pixel' : 'assets/tools';
+const A = 'assets/tools';
 
 /**
  * Lista de ferramentas da barra lateral.
  * `key`   → identificador único (usado no ícone e no botão)
  * `tool`  → motor de desenho a usar (ver TOOL_DEFS)
  * `label` → nome apresentado
- * `img`   → sprite PNG (preto/branco) recolorido em tool-art.js
+ * `img`   → sprite pixel-art 72×22 recolorido em tool-art.js (gerado por scripts/pixel-sprites.py)
  */
 export const TOOLS = [
   {
