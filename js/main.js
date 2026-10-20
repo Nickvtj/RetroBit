@@ -27,6 +27,9 @@ const frameEl = document.getElementById('canvas-frame');
 const cursorEl = document.getElementById('canvas-cursor');
 let cursorPending = null;
 let cursorRaf = 0;
+let lastThumbAt = 0; // throttle da miniatura ao vivo da camada
+
+const THUMB_INTERVAL = 100; // ms entre atualizações da miniatura durante o traço
 
 /** Dimensiona a moldura para caber na zona, preservando a proporção da resolução. */
 function fitFrame() {
@@ -232,6 +235,10 @@ function bindCanvas() {
     if (activePointer !== null && e.pointerId !== activePointer) return;
     const pos = engine.getCanvasPos(e);
     tools.onPointerMove(e, pos);
+    if (state.isDrawing && e.timeStamp - lastThumbAt > THUMB_INTERVAL) {
+      lastThumbAt = e.timeStamp;
+      layersPanel?.refreshThumb(state.activeLayerId);
+    }
   });
   canvas.addEventListener('pointerleave', hideCursor);
   canvas.addEventListener('pointerup', (e) => finish(e, false));

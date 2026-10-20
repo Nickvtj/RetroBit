@@ -18,6 +18,7 @@ export class Renderer {
     this._layerCaches = new Map();
     this._activeStatic = null;
     this._activeLive = null;
+    this._liveLayerId = null; // camada cujo conteúdo está em _activeLive neste traço
     this._activeStaticJitter = -1;
     this._activeStaticReady = false;
   }
@@ -58,6 +59,7 @@ export class Renderer {
 
   endLiveStroke() {
     this._activeStaticReady = false;
+    this._liveLayerId = null;
     const layer = getActiveLayer();
     if (layer) this._layerCaches.delete(layer.id);
   }
@@ -84,10 +86,13 @@ export class Renderer {
     return entry.canvas;
   }
 
-  /** Canvas da camada já desenhada (jitter atual) — usado nas miniaturas. */
+  /**
+   * Canvas atualizado da camada — usado nas miniaturas. Durante o traço devolve
+   * a composição ao vivo; fora dele redesenha sempre (o cache pode estar velho,
+   * ex.: logo após desfazer, antes de o renderer ser invalidado).
+   */
   layerCanvas(layer) {
-    const cached = this._layerCaches.get(layer.id);
-    if (cached?.jitter === this.jitterFrame) return cached.canvas;
+    if (state.isDrawing && this._liveLayerId === layer.id) return this._activeLive;
     return this._bakeLayer(layer);
   }
 
@@ -142,6 +147,7 @@ export class Renderer {
           lc.clearRect(0, 0, live.width, live.height);
           lc.drawImage(this._activeStatic, 0, 0);
           this._drawPath(lc, state.currentPath);
+          this._liveLayerId = layer.id;
           ctx.drawImage(live, 0, 0);
         } else {
           const cached = this._layerCaches.get(layer.id);

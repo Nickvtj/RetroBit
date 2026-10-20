@@ -214,6 +214,13 @@ export function createLayersPanel(callbacks) {
     ctx.restore();
   }
 
+  /** Redesenha só a miniatura de uma camada (barato — usado durante o traço). */
+  function refreshThumb(id) {
+    const canvas = els.list.querySelector(`[data-thumb="${id}"]`);
+    const layer = getLayerById(id);
+    if (canvas && layer) drawThumb(canvas, layer);
+  }
+
   /** Feedback quando se tenta desenhar numa camada bloqueada. */
   function flashLocked() {
     deniedAt = performance.now();
@@ -318,5 +325,5 @@ export function createLayersPanel(callbacks) {
     render();
   }
 
-  return { init, render, addLayer, flashLocked };
+  return { init, render, addLayer, flashLocked, refreshThumb };
 }
