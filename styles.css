@@ -765,6 +765,8 @@ input { user-select: text; -webkit-user-select: text; }
 .wp-tool + .wp-tool { margin-top: -2px; }
 /* A borracha fica afastada das canetas. */
 .wp-tool + .wp-tool--eraser { margin-top: 12px; }
+/* O balde tem a alça por cima do corpo: um pouco mais de ar em relação ao spray. */
+.wp-tool[data-key="bucket"] { margin-top: 10px; }
 @media (hover: hover) {
   .wp-tool:hover { transform: translateX(-12px); }
 }
@@ -1114,6 +1116,21 @@ input { user-select: text; -webkit-user-select: text; }
 }
 .splash__lang:hover { opacity: 1; color: var(--rb-magenta); }
 
+/* ── Sugestão de virar o celular ───────────────────────────── */
+.rotate-hint { z-index: 1960; }
+.rotate-win { width: min(92vw, 340px); }
+.rotate-win__body { padding: 16px 8px 8px; display: flex; flex-direction: column; align-items: center; gap: 14px; }
+.rotate-phone .px-icon { width: 72px; height: 72px; animation: rb-rotate-phone 2.2s steps(1) infinite; }
+/* Em pé → vira aos saltos → deitado (fica um bocado) → volta. */
+@keyframes rb-rotate-phone {
+  0%, 25% { rotate: 0deg; }
+  33% { rotate: 30deg; }
+  41% { rotate: 60deg; }
+  49%, 85% { rotate: 90deg; }
+  92% { rotate: 45deg; }
+}
+@media (prefers-reduced-motion: reduce) { .rotate-phone .px-icon { animation: none; rotate: 90deg; } }
+
 /* ── Tutorial ───────────────────────────────────────────── */
 .tour { position: fixed; inset: 0; z-index: 1950; }
 .tour__hole {
@@ -1297,6 +1314,10 @@ input { user-select: text; -webkit-user-select: text; }
     padding: 0 4px;
   }
   .tool-rail__stack::-webkit-scrollbar { display: none; }
+  /* Há mais ferramentas para o lado → a borda esmaece (ui.js liga fade-l / fade-r). */
+  .tool-rail__stack.fade-r { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+  .tool-rail__stack.fade-l { -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to left, #000 calc(100% - 40px), transparent); }
+  .tool-rail__stack.fade-l.fade-r { -webkit-mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); }
   .wp-tool, .obliterate {
     width: var(--tool-h);
     height: var(--tool-w);
@@ -1311,6 +1332,7 @@ input { user-select: text; -webkit-user-select: text; }
   .obliterate .obliterate__img { transform: translateX(calc(26px * var(--tool-scale))) rotate(90deg); }
   .wp-tool + .wp-tool { margin-top: 30px; margin-left: -4px; }
   .wp-tool + .wp-tool--eraser { margin-top: 30px; margin-left: 14px; }
+  .wp-tool[data-key="bucket"] { margin-left: 12px; }
   .wp-tool.is-active { transform: translateY(-24px); }
   @media (hover: hover) {
     .wp-tool:hover { transform: translateY(-10px); }
@@ -1328,7 +1350,8 @@ input { user-select: text; -webkit-user-select: text; }
   .mirror-btn--zoom { min-width: 52px; }
   .mirror-bar { gap: 4px; }
   .mirror-bar__sep { display: none; }
-  .wp-tool + .wp-tool { margin-left: -8px; }
+  .wp-tool + .wp-tool { margin-left: 0; }
+  .wp-tool[data-key="bucket"] { margin-left: 10px; }
   .layers-panel { top: calc(64px + var(--safe-t)); }
 }
 /* Tablet em pé: os botões secundários cabem no dock. */
@@ -1386,6 +1409,7 @@ input { user-select: text; -webkit-user-select: text; }
   /* Os sprites têm folga transparente em cima e em baixo: juntá-los faz caber tudo em ~390px. */
   .wp-tool + .wp-tool { margin-top: -8px; }
   .wp-tool + .wp-tool--eraser { margin-top: 2px; }
+  .wp-tool[data-key="bucket"] { margin-top: 4px; } /* o balde tem a alça por cima: afasta-o do spray */
   .wp-tool.is-active { transform: translateX(-16px); }
   @media (hover: hover) { .wp-tool:hover { transform: translateX(-8px); } }
   .obliterate { margin: 4px 0 8px 22px; transform: none; }

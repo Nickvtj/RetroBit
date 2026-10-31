@@ -154,7 +154,8 @@ export function igniteDynamite(el) {
   return new Promise((resolve) => {
     const start = performance.now();
     const step = (now) => {
-      const t = Math.min(1, (now - start) / DURATION);
+      // O tempo do quadro pode ser um pouco anterior a `start`: t nunca fica negativo.
+      const t = Math.max(0, Math.min(1, (now - start) / DURATION));
       sparkAt(fusePoint(el, FUSE[Math.min(FUSE.length - 1, Math.floor(t * FUSE.length))]), 4);
       if (t < 1) requestAnimationFrame(step);
       else resolve();

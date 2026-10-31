@@ -115,6 +115,8 @@ function sfx(fn) {
  *  squeak → chiado afinado que sobe com a velocidade (marcador)
  *  rub    → zumbido grave de borracha a esfregar
  */
+const STILL_AFTER = 0.09; // s sem movimento até o som do traço se apagar
+
 const SND = {
   pen:       { filter: 'highpass', freq: 2600, q: 0.9, gain: 0.08, tick: { every: 16, freq: 2300, gain: 0.03 } },
   fineliner: { filter: 'highpass', freq: 3800, q: 1.2, gain: 0.06, tick: { every: 11, freq: 3400, gain: 0.022 } },
@@ -182,15 +184,21 @@ export function updateStroke(speed) {
   if (!active || muted) return;
   const c = ctx;
   const t = c.currentTime;
-  // velocidade → intensidade (com teto), para o som "seguir" o traço
+  // velocidade → intensidade (com teto), para o som "seguir" o traço; e se a
+  // mão parar (sem mais movimentos), o som apaga-se sozinho logo a seguir.
   const s = Math.min(1, speed / 40);
-  active.g.gain.setTargetAtTime(active.cfg.gain * (0.35 + s * 0.9), t, 0.03);
+  const g = active.g.gain;
+  g.cancelScheduledValues(t);
+  g.setTargetAtTime(active.cfg.gain * (0.35 + s * 0.9), t, 0.03);
+  g.setTargetAtTime(0.0001, t + STILL_AFTER, 0.05);
   if (active.cfg.grain) {
     active.filt.frequency.setTargetAtTime(active.cfg.freq * (0.85 + Math.random() * 0.4), t, 0.02);
   }
   if (active.tone) {
-    const { o, g, cfg } = active.tone;
-    g.gain.setTargetAtTime(cfg.gain * (0.2 + s), t, 0.04);
+    const { o, g: tg, cfg } = active.tone;
+    tg.gain.cancelScheduledValues(t);
+    tg.gain.setTargetAtTime(cfg.gain * (0.2 + s), t, 0.04);
+    tg.gain.setTargetAtTime(0.0001, t + STILL_AFTER, 0.05);
     if (active.cfg.squeak) o.frequency.setTargetAtTime(cfg.freq * (0.9 + s * 0.6), t, 0.05);
   }
   const tick = active.cfg.tick;

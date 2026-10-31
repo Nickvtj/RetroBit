@@ -233,6 +233,28 @@ export function createUI(callbacks) {
       );
     }
     applyToolColors();
+    els.toolList.addEventListener('scroll', updateTrayFade, { passive: true });
+    // Recalcula quando a bandeja ganha tamanho (ex.: ao entrar na tela de desenho) ou muda de forma.
+    new ResizeObserver(updateTrayFade).observe(els.toolList);
+  }
+
+  /** Bandeja do celular: esmaece a borda do lado onde há mais ferramentas escondidas. */
+  function updateTrayFade() {
+    const s = els.toolList;
+    const max = s.scrollWidth - s.clientWidth;
+    s.classList.toggle('fade-l', max > 2 && s.scrollLeft > 2);
+    s.classList.toggle('fade-r', max > 2 && s.scrollLeft < max - 2);
+  }
+
+  /** Na bandeja que rola de lado, traz a ferramenta escolhida para a vista. */
+  function revealTool(btn) {
+    const s = els.toolList;
+    if (!btn || s.scrollWidth <= s.clientWidth) return;
+    const left = btn.offsetLeft - s.offsetLeft;
+    if (left < s.scrollLeft) s.scrollTo({ left: left - 16, behavior: 'smooth' });
+    else if (left + btn.offsetWidth > s.scrollLeft + s.clientWidth) {
+      s.scrollTo({ left: left + btn.offsetWidth - s.clientWidth + 16, behavior: 'smooth' });
+    }
   }
 
   function syncActiveSettings() {
@@ -352,7 +374,9 @@ export function createUI(callbacks) {
     });
     updateCanvasMode();
     playSwitch();
-    toolFx(els.toolList.querySelector(`[data-key="${key}"]`), key, state.toolColors[key]);
+    const btn = els.toolList.querySelector(`[data-key="${key}"]`);
+    toolFx(btn, key, state.toolColors[key]);
+    revealTool(btn);
     callbacks.onToolChange?.(t.tool);
   }
 

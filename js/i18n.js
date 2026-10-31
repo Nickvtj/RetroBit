@@ -182,6 +182,14 @@ const EN = {
   'duplicar (Ctrl+D)': 'duplicate (Ctrl+D)',
   'espelhar': 'flip',
 
+  // ── Sugestão de virar o celular ─────────────────────────
+  'dica': 'tip',
+  'Vire o celular de lado': 'Turn your phone sideways',
+  'Na horizontal a tela de desenho fica maior e todas as canetas ficam à vista.':
+    'In landscape the canvas is bigger and every pen is in view.',
+  'Continuar em pé': 'Keep it upright',
+  'Tela cheia deitada': 'Full screen, sideways',
+
   // ── Tutorial ───────────────────────────────────────────
   'Pular': 'Skip',
   'Próximo': 'Next',

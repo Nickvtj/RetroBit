@@ -218,7 +218,7 @@ export function createLayersPanel(callbacks) {
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = getCanvasBg();
     ctx.fillRect(0, 0, w, h);
-    const src = layer.paths.length ? callbacks.getLayerCanvas?.(layer) : null;
+    const src = layer.paths.length ? callbacks.getLayerCanvas?.(layer, w, h) : null;
     if (!src) return;
     ctx.save();
     ctx.globalAlpha = layer.opacity;

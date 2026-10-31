@@ -60,6 +60,7 @@ const SHELL = [
   'js/i18n.js',
   'js/version.js',
   'js/tour.js',
+  'js/rotate-hint.js',
 ];
 
 self.addEventListener('install', (e) => {

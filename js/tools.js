@@ -79,6 +79,8 @@ export function createToolHandlers(engine, history, renderer, hooks = {}) {
     if (!layer.visible) layer.visible = true;
 
     const def = TOOL_DEFS[state.tool];
+    // Borracha numa camada sem tinta: apaga nada → fica em silêncio.
+    const silent = def.eraser && !layer.paths.some((p) => !TOOL_DEFS[p.tool]?.eraser);
 
     history.record(snapshotPaths());
 
@@ -102,7 +104,7 @@ export function createToolHandlers(engine, history, renderer, hooks = {}) {
       state.lastX = pos.x;
       state.lastY = pos.y;
       renderer?.beginLiveStroke();
-      beginStroke(state.activeKey);
+      if (!silent) beginStroke(state.activeKey);
       return;
     }
 
@@ -125,7 +127,7 @@ export function createToolHandlers(engine, history, renderer, hooks = {}) {
     state.lastY = pos.y;
 
     renderer?.beginLiveStroke();
-    beginStroke(state.activeKey);
+    if (!silent) beginStroke(state.activeKey);
   }
 
   function startShape(pos) {

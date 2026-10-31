@@ -11,6 +11,7 @@ import { igniteDynamite, setBusy } from './fx.js';
 import { t, translatePage } from './i18n.js';
 import { VERSION } from './version.js';
 import { startTour, tourSeen } from './tour.js';
+import { maybeShowRotateHint } from './rotate-hint.js';
 import { encodeGIF } from './gif.js';
 import {
   loadProjects, getProject, saveProject, makeProjectId, nextProjectName,
@@ -262,7 +263,11 @@ function loadDocument(doc) {
 function markDirty() {
   dirty = true;
   clearTimeout(draftTimer);
-  draftTimer = setTimeout(writeDraft, DRAFT_DELAY);
+  draftTimer = setTimeout(() => {
+    // Juntar um desenho grande custa: espera um momento livre do navegador.
+    if (window.requestIdleCallback) requestIdleCallback(writeDraft, { timeout: 2000 });
+    else writeDraft();
+  }, DRAFT_DELAY);
 }
 
 function writeDraft() {
@@ -789,8 +794,12 @@ async function boot() {
       viewport.reset();
       initCanvas();
       layersPanel?.render();
-      // Primeira vez na tela de desenho: tutorial (depois da transição íris).
-      if (!tourSeen()) setTimeout(startTour, 450);
+      // Depois da transição íris: no celular em pé, a sugestão de virar de lado;
+      // a seguir (só na primeira vez) o tutorial — um de cada vez.
+      setTimeout(async () => {
+        await maybeShowRotateHint();
+        if (!tourSeen()) startTour();
+      }, 450);
     },
 
     /** Resolve true se salvou (false = disco cheio/indisponível). */
@@ -869,8 +878,11 @@ async function boot() {
       if (!layer || igniting) return;
       if (layer.locked) { layersPanel?.flashLocked(); return; }
       igniting = true;
-      await igniteDynamite(document.getElementById('btn-clear'));
-      igniting = false;
+      try {
+        await igniteDynamite(document.getElementById('btn-clear'));
+      } finally {
+        igniting = false;
+      }
       if (!state.layers.includes(layer)) return;
       history.record(snapshotPaths());
       const app = document.getElementById('app');
@@ -920,7 +932,7 @@ async function boot() {
   layersPanel = createLayersPanel({
     onChange: () => { renderer.invalidate(); select.refresh(); syncLockCursor(); },
     onHistory: () => history.record(snapshotPaths()),
-    getLayerCanvas: (layer) => renderer.layerCanvas(layer),
+    getLayerCanvas: (layer, w, h) => renderer.layerThumb(layer, w, h),
   });
 
   initTheme();

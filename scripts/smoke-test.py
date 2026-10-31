@@ -22,7 +22,7 @@ ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 ST = "import('./js/state.js').then(({state}) => (%s))"
 PIX = """([x, y]) => { const d = document.getElementById('main-canvas').getContext('2d').getImageData(x, y, 1, 1).data;
   return '#' + [d[0], d[1], d[2]].map(v => v.toString(16).padStart(2, '0')).join(''); }"""
-SETUP = "localStorage.setItem('retrobit-tour-done','1');localStorage.setItem('retrobit-lang','pt')"
+SETUP = "localStorage.setItem('retrobit-tour-done','1');localStorage.setItem('retrobit-rotate-ok','1');localStorage.setItem('retrobit-lang','pt')"
 
 failures = []
 
@@ -105,7 +105,7 @@ def main():
 
         print('celular e inglês')
         phone = b.new_context(viewport={'width': 390, 'height': 844}, has_touch=True, is_mobile=True, locale='en-US')
-        phone.add_init_script("localStorage.setItem('retrobit-tour-done','1')")
+        phone.add_init_script("localStorage.setItem('retrobit-tour-done','1');localStorage.setItem('retrobit-rotate-ok','1')")
         ph = phone.new_page()
         ph.on('pageerror', lambda e: errors.append(str(e)))
         ph.goto(url); ph.wait_for_timeout(500)

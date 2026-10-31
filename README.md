@@ -382,7 +382,7 @@ RetroBit/
 
 Feito para navegadores modernos e testado no **Google Chrome**. Os navegadores atuais baseados nos mesmos padrões (Edge, Firefox, Safari) devem funcionar igual.
 
-A interface se adapta ao tamanho da tela: **desktop e notebook**, **tablet** deitado ou em pé (as canetas viram uma bandeja embaixo) e **celular** deitado ou em pé (as camadas viram uma gaveta e as ações extras ficam no menu **⋯**). No celular ou tablet, use **Adicionar à tela inicial** para instalar o RetroBit como um app que funciona offline.
+A interface se adapta ao tamanho da tela: **desktop e notebook**, **tablet** deitado ou em pé (as canetas viram uma bandeja embaixo) e **celular** deitado ou em pé (as camadas viram uma gaveta e as ações extras ficam no menu **⋯**). No celular ou tablet, use **Adicionar à tela inicial** para instalar o RetroBit como um app que funciona offline. No **celular em pé**, o RetroBit sugere virar de lado: na horizontal a tela de desenho fica maior e todas as canetas ficam à vista (no Android, o botão **Tela cheia deitada** já entra em tela cheia na horizontal). Quem preferir desenhar em pé é só tocar em **Continuar em pé**.
 
 <br>
 

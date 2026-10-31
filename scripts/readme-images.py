@@ -39,7 +39,7 @@ def serve():
     return f'http://127.0.0.1:{httpd.server_address[1]}/'
 
 
-SETUP = "localStorage.setItem('retrobit-tour-done','1');localStorage.setItem('retrobit-lang','pt')"
+SETUP = "localStorage.setItem('retrobit-tour-done','1');localStorage.setItem('retrobit-rotate-ok','1');localStorage.setItem('retrobit-lang','pt')"
 
 
 class Painter:
