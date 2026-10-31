@@ -4,6 +4,11 @@
 import { state, OPACITIES, createLayer, getLayerById } from './state.js';
 import { getCanvasBg } from './theme.js';
 import { escapeHtml } from './util.js';
+import { icon } from './icons.js';
+import { t } from './i18n.js';
+import { playPop, playCrunch, playError } from './audio.js';
+
+const DRAG_THRESHOLD = 6; // px antes de um clique virar arrasto
 
 export function createLayersPanel(callbacks) {
   const $ = (id) => document.getElementById(id);
@@ -20,6 +25,7 @@ export function createLayersPanel(callbacks) {
     menuRename: $('layer-menu-rename'),
     menuDup: $('layer-menu-dup'),
     menuLock: $('layer-menu-lock'),
+    menuLockLabel: $('layer-menu-lock-label'),
     menuDel: $('layer-menu-del'),
     renameModal: $('layer-rename-modal'),
     renameInput: $('layer-rename-input'),
@@ -29,14 +35,15 @@ export function createLayersPanel(callbacks) {
   };
 
   let menuLayerId = null;
-  let dragId = null;
+  let bornId = null; // camada acabada de criar → anima a entrada
+  let drag = null; // { id, row, pointerId, startY, active, targetId }
   let deniedAt = 0; // momento do último aviso de "camada bloqueada" (sobrevive ao re-render)
 
   function nextLayerName() {
     const names = new Set(state.layers.map((l) => l.name));
     let n = state.layers.length + 1;
-    while (names.has(`Camada ${n}`)) n++;
-    return `Camada ${n}`;
+    while (names.has(t('Camada {n}', { n }))) n++;
+    return t('Camada {n}', { n });
   }
 
   function recordHistory() {
@@ -57,6 +64,8 @@ export function createLayersPanel(callbacks) {
     const insertAt = idx >= 0 ? idx + 1 : state.layers.length; // logo acima da ativa
     state.layers.splice(insertAt, 0, layer);
     state.activeLayerId = layer.id;
+    bornId = layer.id;
+    playPop();
     render();
     callbacks.onChange?.();
   }
@@ -67,6 +76,7 @@ export function createLayersPanel(callbacks) {
     const idx = state.layers.findIndex((l) => l.id === id);
     if (idx < 0) return;
     state.layers.splice(idx, 1);
+    playCrunch();
     if (state.activeLayerId === id) {
       state.activeLayerId = state.layers[Math.max(0, idx - 1)].id;
     }
@@ -79,13 +89,15 @@ export function createLayersPanel(callbacks) {
     const src = getLayerById(id);
     if (!src) return;
     recordHistory();
-    const copy = createLayer(`${src.name} cópia`, src.paths.map(clonePath));
+    const copy = createLayer(t('{name} cópia', { name: src.name }), src.paths.map(clonePath));
     copy.visible = src.visible;
     copy.opacity = src.opacity;
     copy.locked = src.locked;
     const idx = state.layers.findIndex((l) => l.id === id);
     state.layers.splice(idx + 1, 0, copy);
     state.activeLayerId = copy.id;
+    bornId = copy.id;
+    playPop();
     els.menuModal.hidden = true;
     render();
     callbacks.onChange?.();
@@ -127,6 +139,7 @@ export function createLayersPanel(callbacks) {
     layer.locked = !layer.locked;
     updateMenuLockLabel();
     render();
+    callbacks.onChange?.();
   }
 
   function setLayerOpacity(id, value) {
@@ -173,7 +186,7 @@ export function createLayersPanel(callbacks) {
   function updateMenuLockLabel() {
     const layer = getLayerById(menuLayerId);
     if (!layer) return;
-    els.menuLock.textContent = layer.locked ? 'Desbloquear' : 'Bloquear';
+    els.menuLockLabel.textContent = layer.locked ? t('Desbloquear') : t('Bloquear');
   }
 
   function openRename() {
@@ -224,7 +237,47 @@ export function createLayersPanel(callbacks) {
   /** Feedback quando se tenta desenhar numa camada bloqueada. */
   function flashLocked() {
     deniedAt = performance.now();
+    playError();
     render();
+  }
+
+  /* ── Arrastar para reordenar (rato, caneta e toque) ───────
+     Rato/caneta: arrasta-se a linha inteira. Toque: só pela miniatura, para o
+     resto da lista continuar a rolar com o dedo. */
+  function onRowPointerDown(e, row) {
+    if (e.button !== 0 || e.target.closest('[data-menu], [data-eye]')) return;
+    if (e.pointerType === 'touch' && !e.target.closest('[data-thumb]')) return;
+    drag = { id: row.dataset.id, row, pointerId: e.pointerId, startY: e.clientY, active: false, targetId: null };
+    row.setPointerCapture(e.pointerId);
+  }
+
+  function onRowPointerMove(e) {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    const dy = e.clientY - drag.startY;
+    if (!drag.active) {
+      if (Math.abs(dy) < DRAG_THRESHOLD) return;
+      drag.active = true;
+      drag.row.classList.add('is-dragging');
+    }
+    drag.row.style.transform = `translateY(${dy}px)`;
+    // Linha por baixo do ponteiro = destino.
+    drag.targetId = null;
+    els.list.querySelectorAll('.layer-row').forEach((r) => {
+      if (r === drag.row) return;
+      const b = r.getBoundingClientRect();
+      const hit = e.clientY >= b.top && e.clientY <= b.bottom;
+      r.classList.toggle('is-drop-target', hit);
+      if (hit) drag.targetId = r.dataset.id;
+    });
+  }
+
+  function onRowPointerUp(e) {
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    const { active, id, targetId } = drag;
+    drag = null;
+    if (!active) return; // foi só um clique → o "click" seleciona a camada
+    if (targetId && targetId !== id) moveLayer(id, targetId);
+    else render();
   }
 
   function render() {
@@ -235,15 +288,17 @@ export function createLayersPanel(callbacks) {
       const hidden = layer.visible ? '' : ' is-hidden';
       const locked = layer.locked ? ' is-locked' : '';
       const denied = active && performance.now() - deniedAt < 500 ? ' is-denied' : '';
-      const eye = layer.visible ? '◉' : '○';
+      const born = layer.id === bornId ? ' is-born' : '';
       return `
-        <div class="layer-row${active}${hidden}${locked}${denied}" data-id="${layer.id}" draggable="true">
-          <button type="button" class="layer-row__eye" data-eye="${layer.id}" title="visível">${eye}</button>
+        <div class="layer-row${active}${hidden}${locked}${denied}${born}" data-id="${layer.id}">
+          <button type="button" class="layer-row__eye" data-eye="${layer.id}" title="${layer.visible ? t('esconder') : t('mostrar')}"
+            aria-pressed="${layer.visible}">${icon(layer.visible ? 'eye' : 'eyeOff')}</button>
           <canvas class="layer-row__thumb" width="48" height="38" data-thumb="${layer.id}" aria-hidden="true"></canvas>
-          <span class="layer-row__name">${escapeHtml(layer.name)}</span>
-          <button type="button" class="layer-row__menu" data-menu="${layer.id}" title="opções">⋮</button>
+          <span class="layer-row__name">${escapeHtml(layer.name)}${icon('lock').replace('px-icon', 'px-icon layer-row__lock')}</span>
+          <button type="button" class="layer-row__menu" data-menu="${layer.id}" title="${t('opções')}">${icon('dots')}</button>
         </div>`;
     }).join('');
+    bornId = null;
 
     els.list.querySelectorAll('[data-thumb]').forEach((c) => {
       const layer = getLayerById(c.dataset.thumb);
@@ -256,26 +311,10 @@ export function createLayersPanel(callbacks) {
         if (e.target.closest('[data-menu]') || e.target.closest('[data-eye]')) return;
         selectLayer(id);
       });
-      row.addEventListener('dragstart', (e) => {
-        dragId = id;
-        row.classList.add('is-dragging');
-        e.dataTransfer.effectAllowed = 'move';
-      });
-      row.addEventListener('dragend', () => {
-        dragId = null;
-        row.classList.remove('is-dragging');
-        els.list.querySelectorAll('.layer-row').forEach((r) => r.classList.remove('is-drop-target'));
-      });
-      row.addEventListener('dragover', (e) => {
-        e.preventDefault();
-        if (dragId && dragId !== id) row.classList.add('is-drop-target');
-      });
-      row.addEventListener('dragleave', () => row.classList.remove('is-drop-target'));
-      row.addEventListener('drop', (e) => {
-        e.preventDefault();
-        row.classList.remove('is-drop-target');
-        if (dragId && dragId !== id) moveLayer(dragId, id);
-      });
+      row.addEventListener('pointerdown', (e) => onRowPointerDown(e, row));
+      row.addEventListener('pointermove', onRowPointerMove);
+      row.addEventListener('pointerup', onRowPointerUp);
+      row.addEventListener('pointercancel', onRowPointerUp);
     });
 
     els.list.querySelectorAll('[data-eye]').forEach((btn) => {

@@ -1,6 +1,7 @@
 /** Pontos do perímetro de uma forma (coordenadas lógicas). */
 export function shapeOutline(path) {
   const { x0, y0, x1, y1, shape } = path;
+  if (shape === 'poly') return path.points; // forma girada pela luva
   if (shape === 'line') {
     return [{ x: x0, y: y0 }, { x: x1, y: y1 }];
   }

@@ -2,12 +2,23 @@
 <html lang="pt-BR" data-theme="light">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>RetroBit</title>
+  <meta name="description" content="Desenhe com canetas, pincéis e spray e veja cada traço tremer como num desenho animado antigo. Exporte como GIF animado.">
+  <meta name="theme-color" content="#ffffff">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="RetroBit">
+  <meta property="og:description" content="Desenhe com canetas, pincéis e spray e veja cada traço tremer como num desenho animado antigo. Exporte como GIF animado.">
+  <meta property="og:image" content="docs/images/social.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="RetroBit">
+  <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=VT323&family=Covered+By+Your+Grace&display=swap" rel="stylesheet">
+  <link rel="apple-touch-icon" href="assets/icons/icon-180.png">
+  <link rel="preload" href="assets/fonts/vt323-latin.woff2" as="font" type="font/woff2" crossorigin>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
@@ -29,8 +40,10 @@
       <h1 class="splash__title">RetroBit</h1>
       <p class="splash__sub">uma ferramenta de desenho com traço tremido</p>
       <button type="button" class="splash__go" id="btn-start">Vamos desenhar!</button>
+      <div class="splash__parade" id="splash-parade" aria-hidden="true"></div>
     </div>
-    <span class="splash__ver">v1.4</span>
+    <span class="splash__ver" id="app-version"></span>
+    <button type="button" class="splash__lang" id="btn-lang"></button>
     <p class="splash__credit">desenvolvido por Nicolas Vieira</p>
   </div>
 
@@ -38,107 +51,119 @@
   <div id="gallery" class="gallery" hidden>
     <header class="gallery__bar"><span>• RetroBit •</span></header>
     <div class="gallery__grid" id="gallery-grid"></div>
+    <input type="file" id="project-file" accept=".retrobit,application/json" hidden>
   </div>
 
   <!-- ── Tela de desenho ────────────────────────────────── -->
   <div id="app" class="app" hidden>
-    <button type="button" class="back-btn" id="btn-back">◀ voltar</button>
+    <button type="button" class="back-btn" id="btn-back" title="voltar à galeria">
+      <i data-icon="back"></i><span class="btn-label">voltar</span>
+    </button>
+    <!-- Só em telas compactas: abre a gaveta de camadas. -->
+    <button type="button" class="icon-btn layers-toggle" id="btn-layers" title="camadas" aria-expanded="false" aria-controls="layers-panel">
+      <i data-icon="layers"></i>
+    </button>
 
     <aside class="layers-panel" id="layers-panel" aria-label="Camadas">
       <header class="layers-panel__bar"><span>camadas</span></header>
       <div class="layers-panel__list" id="layers-list"></div>
-      <button type="button" class="layers-panel__add" id="layers-add" title="nova camada">+</button>
+      <button type="button" class="layers-panel__add" id="layers-add" title="nova camada"><i data-icon="plus"></i></button>
     </aside>
 
-    <section class="canvas-zone">
+    <section class="canvas-zone" id="canvas-zone">
       <div class="canvas-stack">
         <div class="mirror-bar" role="toolbar" aria-label="Ferramentas do quadro">
-          <button type="button" class="mirror-btn" id="btn-mirror-h" title="espelho horizontal" aria-pressed="false">
-            <svg class="mirror-btn__icon" viewBox="0 0 24 24" aria-hidden="true">
-              <rect class="mirror-btn__ink" x="13" y="3" width="4" height="18"/>
-              <rect class="mirror-btn__ink" x="4" y="9" width="6" height="6"/>
-            </svg>
-          </button>
-          <button type="button" class="mirror-btn" id="btn-mirror-v" title="espelho vertical" aria-pressed="false">
-            <svg class="mirror-btn__icon" viewBox="0 0 24 24" aria-hidden="true">
-              <rect class="mirror-btn__ink" x="3" y="13" width="18" height="4"/>
-              <rect class="mirror-btn__ink" x="9" y="4" width="6" height="6"/>
-            </svg>
+          <button type="button" class="mirror-btn mirror-btn--zoom" id="btn-zoom" title="zoom — clique para voltar a 100%">
+            <span id="zoom-val">100%</span>
           </button>
           <span class="mirror-bar__sep" aria-hidden="true"></span>
-          <button type="button" class="mirror-btn" id="btn-shape-rect" data-shape="rect" title="retângulo" aria-pressed="false">
-            <svg class="mirror-btn__icon" viewBox="0 0 24 24" aria-hidden="true">
-              <rect x="5" y="6" width="14" height="12" fill="none" stroke="currentColor" stroke-width="3"/>
-            </svg>
-          </button>
-          <button type="button" class="mirror-btn" id="btn-shape-ellipse" data-shape="ellipse" title="elipse" aria-pressed="false">
-            <svg class="mirror-btn__icon" viewBox="0 0 24 24" aria-hidden="true">
-              <ellipse cx="12" cy="12" rx="9" ry="7" fill="none" stroke="currentColor" stroke-width="3"/>
-            </svg>
-          </button>
-          <button type="button" class="mirror-btn" id="btn-shape-line" data-shape="line" title="linha" aria-pressed="false">
-            <svg class="mirror-btn__icon" viewBox="0 0 24 24" aria-hidden="true">
-              <line x1="4" y1="19" x2="20" y2="5" stroke="currentColor" stroke-width="3"/>
-            </svg>
-          </button>
+          <button type="button" class="mirror-btn" id="btn-mirror-h" title="espelho horizontal" aria-pressed="false"><i data-icon="mirrorH"></i></button>
+          <button type="button" class="mirror-btn" id="btn-mirror-v" title="espelho vertical" aria-pressed="false"><i data-icon="mirrorV"></i></button>
+          <span class="mirror-bar__sep" aria-hidden="true"></span>
+          <button type="button" class="mirror-btn" id="btn-select" title="luva: selecionar, mover, esticar e girar" aria-pressed="false"><i data-icon="glove"></i></button>
+          <button type="button" class="mirror-btn mirror-btn--grid" id="btn-grid" title="grade de pixel art: desligada · 8 · 16 · 32" aria-pressed="false"><i data-icon="grid"></i><span class="grid-badge" id="grid-val" hidden></span></button>
+          <span class="mirror-bar__sep" aria-hidden="true"></span>
+          <button type="button" class="mirror-btn" id="btn-shape-rect" data-shape="rect" title="retângulo" aria-pressed="false"><i data-icon="rect"></i></button>
+          <button type="button" class="mirror-btn" id="btn-shape-ellipse" data-shape="ellipse" title="elipse" aria-pressed="false"><i data-icon="ellipse"></i></button>
+          <button type="button" class="mirror-btn" id="btn-shape-line" data-shape="line" title="linha" aria-pressed="false"><i data-icon="line"></i></button>
         </div>
         <div class="canvas-frame" id="canvas-frame">
           <canvas id="main-canvas" aria-label="Área de desenho"></canvas>
           <canvas id="overlay-canvas" aria-hidden="true"></canvas>
           <div id="crop-hint" class="crop-hint" hidden>arraste para recortar · Esc cancela</div>
-          <div id="canvas-cursor" class="canvas-cursor" hidden aria-hidden="true"></div>
+          <div id="pick-hint" class="crop-hint" hidden>toque numa cor da tela · Esc cancela</div>
+          <!-- Recorta o círculo do cursor exatamente na borda da tela, nos 4 lados. -->
+          <div class="canvas-cursor-clip" aria-hidden="true">
+            <div id="canvas-cursor" class="canvas-cursor" hidden></div>
+          </div>
         </div>
       </div>
+      <!-- Luva: caixa da seleção, cantos, alça de girar e ações (px de ecrã, não cresce com o zoom) -->
+      <!-- Grade de pixel art (só visual, não sai na exportação) -->
+      <div class="grid-overlay" id="grid-overlay" hidden></div>
+      <div class="sel-hud" id="sel-hud" hidden></div>
+      <!-- Mover/esticar a imagem de referência -->
+      <div class="sel-hud ref-hud" id="ref-hud" hidden></div>
     </section>
 
-    <aside class="tool-rail">
+    <aside class="tool-rail" aria-label="Ferramentas">
       <nav class="tool-rail__stack" id="tool-list"></nav>
       <button type="button" class="obliterate" id="btn-clear" title="obliterar camada"></button>
     </aside>
 
-    <footer class="dock">
-      <button type="button" class="paper-btn" id="btn-save">Salvar</button>
-      <button type="button" class="paper-btn" id="btn-export-gif">Exportar</button>
-      <button type="button" class="paper-btn" id="btn-background">Background</button>
-      <button type="button" class="paper-btn" id="btn-crop">Crop</button>
-      <button type="button" class="paper-btn paper-btn--icon" id="btn-undo" title="desfazer (Ctrl+Z)">↶</button>
-      <button type="button" class="paper-btn paper-btn--icon" id="btn-redo" title="refazer (Ctrl+Y)">↷</button>
-      <button type="button" class="paper-btn paper-btn--icon" id="btn-sound" title="desligar som" aria-pressed="false">♪</button>
+    <footer class="dock" id="dock">
+      <button type="button" class="paper-btn dock__btn dock__btn--save" id="btn-save" title="salvar (Ctrl+S)">
+        <i data-icon="save"></i><span class="btn-label">Salvar</span>
+      </button>
+      <!-- Em telas largas é transparente (display: contents); nas compactas vira o menu "⋯". -->
+      <div class="dock__more" id="dock-more">
+        <button type="button" class="paper-btn dock__btn" id="btn-export-gif" title="exportar GIF ou PNG">
+          <i data-icon="export"></i><span class="btn-label">Exportar</span>
+        </button>
+        <button type="button" class="paper-btn dock__btn" id="btn-background" title="cor do fundo">
+          <i data-icon="picture"></i><span class="btn-label">Fundo</span>
+        </button>
+        <button type="button" class="paper-btn dock__btn" id="btn-ref" title="imagem de referência para copiar por cima">
+          <i data-icon="ref"></i><span class="btn-label">Referência</span>
+        </button>
+        <button type="button" class="paper-btn dock__btn" id="btn-crop" title="tamanho da tela e recorte">
+          <i data-icon="crop"></i><span class="btn-label">Tela</span>
+        </button>
+        <button type="button" class="paper-btn dock__btn dock__btn--compact" id="btn-sound" title="desligar som" aria-pressed="false">
+          <i data-icon="sound"></i><i data-icon="soundOff"></i><span class="btn-label">Som</span>
+        </button>
+        <button type="button" class="paper-btn dock__btn dock__btn--compact" id="btn-help" title="ver o tutorial de novo">
+          <i data-icon="help"></i><span class="btn-label">Ajuda</span>
+        </button>
+      </div>
+      <button type="button" class="paper-btn dock__btn dock__btn--icon" id="btn-undo" title="desfazer (Ctrl+Z)"><i data-icon="undo"></i></button>
+      <button type="button" class="paper-btn dock__btn dock__btn--icon" id="btn-redo" title="refazer (Ctrl+Y)"><i data-icon="redo"></i></button>
+      <button type="button" class="paper-btn dock__btn dock__btn--icon dock__more-btn" id="btn-more" title="mais opções" aria-expanded="false" aria-controls="dock-more"><i data-icon="more"></i></button>
     </footer>
   </div>
 
-  <!-- ── Modal: cor + opacidade da ferramenta ───────────── -->
-  <div class="modal-backdrop" id="color-modal" hidden>
-    <div class="win color-win">
-      <div class="win__bar">
-        <span id="color-win-title">escolher cor</span>
-        <button type="button" class="win__close" id="color-close" aria-label="Fechar">×</button>
+  <!-- ── Menu rápido da ferramenta (cor · tamanho · opacidade) ── -->
+  <div class="quick" id="quick-menu" role="dialog" aria-labelledby="quick-title" hidden>
+    <div class="win__bar">
+      <span id="quick-title">caneta</span>
+      <button type="button" class="win__close" id="quick-close" aria-label="Fechar"><i data-icon="close"></i></button>
+    </div>
+    <div class="quick__body">
+      <div class="quick__row quick__row--color">
+        <div class="quick__favs" id="quick-favs"></div>
+        <button type="button" class="quick__tool" id="quick-picker" title="conta-gotas: pegar uma cor da tela"><i data-icon="picker"></i></button>
+        <button type="button" class="quick__tool" id="quick-more" title="mais cores" aria-expanded="false" aria-controls="quick-panel"><i data-icon="palette"></i></button>
       </div>
-      <div class="color-win__body">
-        <div class="color-grid" id="color-grid"></div>
-        <div class="color-win__ctrls">
-          <div class="ctrl-row ctrl-row--op">
-            <span class="ctrl-row__label">opacidade</span>
-            <div class="stepper">
-              <button type="button" class="stepper__btn" id="modal-op-down" aria-label="Menos">&#9664;</button>
-              <span class="stepper__stage"><span class="stepper__val" id="modal-op-val">100%</span></span>
-              <button type="button" class="stepper__btn" id="modal-op-up" aria-label="Mais">&#9654;</button>
-            </div>
-          </div>
-          <div class="ctrl-row ctrl-row--size">
-            <span class="ctrl-row__label">tamanho</span>
-            <div class="stepper">
-              <button type="button" class="stepper__btn" id="modal-size-down" aria-label="Diminuir">&#9664;</button>
-              <span class="stepper__stage"><span class="stepper__dot" id="modal-size-dot"></span></span>
-              <button type="button" class="stepper__btn" id="modal-size-up" aria-label="Aumentar">&#9654;</button>
-            </div>
-          </div>
-        </div>
+      <div class="quick__row quick__row--size" id="quick-sizes" role="radiogroup" aria-label="tamanho"></div>
+      <div class="quick__row quick__row--op" id="quick-ops" role="radiogroup" aria-label="opacidade"></div>
+      <div class="quick__panel" id="quick-panel" hidden>
+        <div class="color-grid" id="quick-grid"></div>
         <div class="color-win__foot">
-          <span class="color-win__chip" id="color-current"></span>
-          <input type="text" class="color-win__hex" id="color-hex" maxlength="7" spellcheck="false">
+          <span class="color-win__chip" id="quick-current"></span>
+          <input type="text" class="color-win__hex" id="quick-hex" maxlength="7" spellcheck="false" aria-label="código da cor">
         </div>
       </div>
+      <p class="quick__hint">segure um quadradinho para guardar a cor atual nele</p>
     </div>
   </div>
 
@@ -147,24 +172,62 @@
     <div class="win color-win">
       <div class="win__bar">
         <span>cor do fundo</span>
-        <button type="button" class="win__close" id="bg-close" aria-label="Fechar">×</button>
+        <button type="button" class="win__close" id="bg-close" aria-label="Fechar"><i data-icon="close"></i></button>
       </div>
       <div class="color-win__body">
         <div class="color-grid" id="bg-grid"></div>
         <div class="color-win__foot">
           <span class="color-win__chip" id="bg-current"></span>
-          <input type="text" class="color-win__hex" id="bg-hex" maxlength="7" spellcheck="false">
+          <input type="text" class="color-win__hex" id="bg-hex" maxlength="7" spellcheck="false" aria-label="código da cor">
         </div>
       </div>
     </div>
   </div>
+
+  <!-- ── Modal: imagem de referência ─────────────────────── -->
+  <div class="modal-backdrop" id="ref-modal" hidden>
+    <div class="win ref-win">
+      <div class="win__bar">
+        <span>imagem de referência</span>
+        <button type="button" class="win__close" id="ref-close" aria-label="Fechar"><i data-icon="close"></i></button>
+      </div>
+      <div class="ref-win__body">
+        <div class="ref-empty" id="ref-empty">
+          <p class="del-win__msg">Coloque uma imagem na tela para desenhar por cima.<br><span class="del-win__sub">Ela não aparece no GIF nem no PNG.</span></p>
+          <button type="button" class="ui-btn ui-btn--go" id="ref-pick">Escolher imagem</button>
+          <p class="del-win__sub">ou arraste uma imagem para a tela, ou cole com Ctrl+V</p>
+        </div>
+        <div class="ref-set" id="ref-set" hidden>
+          <img class="ref-thumb" id="ref-thumb" alt="imagem de referência atual">
+          <div class="ctrl-row">
+            <span class="ctrl-row__label">opacidade</span>
+            <div class="stepper">
+              <button type="button" class="stepper__btn" id="ref-op-down" aria-label="Menos"><i data-icon="left"></i></button>
+              <span class="stepper__stage"><span class="stepper__val" id="ref-op-val">50%</span></span>
+              <button type="button" class="stepper__btn" id="ref-op-up" aria-label="Mais"><i data-icon="right"></i></button>
+            </div>
+          </div>
+          <button type="button" class="proj-action ref-toggle" id="ref-visible" aria-pressed="true"><i data-icon="eye"></i>Mostrar</button>
+          <button type="button" class="proj-action ref-toggle" id="ref-above" aria-pressed="false"><i data-icon="layers"></i>Por cima do desenho</button>
+          <button type="button" class="proj-action ref-toggle" id="ref-gray" aria-pressed="false"><i data-icon="picture"></i>Preto e branco</button>
+          <div class="ref-actions">
+            <button type="button" class="ui-btn" id="ref-adjust">Mover / esticar</button>
+            <button type="button" class="ui-btn" id="ref-fit">Ajustar à tela</button>
+            <button type="button" class="ui-btn" id="ref-change">Trocar</button>
+            <button type="button" class="ui-btn ui-btn--danger" id="ref-remove">Remover</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <input type="file" id="ref-file" accept="image/*" hidden>
 
   <!-- ── Modal: tamanho da tela (Crop) ──────────────────── -->
   <div class="modal-backdrop" id="res-modal" hidden>
     <div class="win res-win">
       <div class="win__bar">
         <span>tamanho da tela</span>
-        <button type="button" class="win__close" id="res-close" aria-label="Fechar">×</button>
+        <button type="button" class="win__close" id="res-close" aria-label="Fechar"><i data-icon="close"></i></button>
       </div>
       <div class="res-win__body" id="res-list"></div>
     </div>
@@ -175,11 +238,11 @@
     <div class="win proj-win">
       <div class="win__bar">
         <span id="proj-win-title">projeto</span>
-        <button type="button" class="win__close" id="proj-close" aria-label="Fechar">×</button>
+        <button type="button" class="win__close" id="proj-close" aria-label="Fechar"><i data-icon="close"></i></button>
       </div>
       <div class="proj-win__body">
-        <button type="button" class="proj-action" id="proj-rename">Renomear</button>
-        <button type="button" class="proj-action proj-action--danger" id="proj-delete">Excluir</button>
+        <button type="button" class="proj-action" id="proj-rename"><i data-icon="edit"></i>Renomear</button>
+        <button type="button" class="proj-action proj-action--danger" id="proj-delete"><i data-icon="trash"></i>Excluir</button>
       </div>
     </div>
   </div>
@@ -189,10 +252,10 @@
     <div class="win rename-win">
       <div class="win__bar">
         <span>renomear projeto</span>
-        <button type="button" class="win__close" id="rename-close" aria-label="Fechar">×</button>
+        <button type="button" class="win__close" id="rename-close" aria-label="Fechar"><i data-icon="close"></i></button>
       </div>
       <div class="rename-win__body">
-        <input type="text" class="rename-win__input" id="rename-input" maxlength="40" spellcheck="false">
+        <input type="text" class="rename-win__input" id="rename-input" maxlength="40" spellcheck="false" aria-label="nome do projeto">
         <div class="rename-win__foot">
           <button type="button" class="ui-btn" id="rename-cancel">Cancelar</button>
           <button type="button" class="ui-btn ui-btn--go" id="rename-confirm">Salvar</button>
@@ -206,7 +269,7 @@
     <div class="win del-win">
       <div class="win__bar">
         <span>apagar projeto</span>
-        <button type="button" class="win__close" id="del-close" aria-label="Fechar">×</button>
+        <button type="button" class="win__close" id="del-close" aria-label="Fechar"><i data-icon="close"></i></button>
       </div>
       <div class="del-win__body">
         <p class="del-win__msg">Apagar &ldquo;<span id="del-name"></span>&rdquo;?<br><span class="del-win__sub">Isso não pode ser desfeito.</span></p>
@@ -223,11 +286,14 @@
     <div class="win proj-win">
       <div class="win__bar">
         <span>exportar</span>
-        <button type="button" class="win__close" id="export-close" aria-label="Fechar">×</button>
+        <button type="button" class="win__close" id="export-close" aria-label="Fechar"><i data-icon="close"></i></button>
       </div>
       <div class="proj-win__body">
         <button type="button" class="proj-action" id="export-gif">GIF animado <span class="proj-action__sub">— tremendo</span></button>
+        <button type="button" class="proj-action" id="export-gif-big">GIF grande <span class="proj-action__sub">— tamanho original</span></button>
         <button type="button" class="proj-action" id="export-png">Imagem PNG <span class="proj-action__sub">— parada</span></button>
+        <button type="button" class="proj-action" id="export-png-clear">PNG sem fundo <span class="proj-action__sub">— transparente</span></button>
+        <button type="button" class="proj-action" id="export-project">Arquivo do projeto <span class="proj-action__sub">— backup (.retrobit)</span></button>
       </div>
     </div>
   </div>
@@ -237,7 +303,7 @@
     <div class="win del-win">
       <div class="win__bar">
         <span>sair do desenho</span>
-        <button type="button" class="win__close" id="leave-close" aria-label="Fechar">×</button>
+        <button type="button" class="win__close" id="leave-close" aria-label="Fechar"><i data-icon="close"></i></button>
       </div>
       <div class="del-win__body">
         <p class="del-win__msg">Sair sem salvar?<br><span class="del-win__sub">As alterações deste desenho vão se perder.</span></p>
@@ -250,26 +316,43 @@
     </div>
   </div>
 
+  <!-- ── Modal: recuperar desenho não salvo ─────────────── -->
+  <div class="modal-backdrop" id="recover-modal" hidden>
+    <div class="win del-win">
+      <div class="win__bar">
+        <span>desenho recuperado</span>
+        <button type="button" class="win__close" id="recover-close" aria-label="Fechar"><i data-icon="close"></i></button>
+      </div>
+      <div class="del-win__body">
+        <p class="del-win__msg"><span id="recover-msg">Achamos um desenho que não foi salvo.</span><br><span class="del-win__sub">Quer continuar de onde parou?</span></p>
+        <div class="del-win__foot">
+          <button type="button" class="ui-btn ui-btn--danger" id="recover-discard">Descartar</button>
+          <button type="button" class="ui-btn ui-btn--go" id="recover-open">Recuperar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Modal: opções da camada ────────────────────────── -->
   <div class="modal-backdrop" id="layer-menu-modal" hidden>
     <div class="win layer-menu-win">
       <div class="win__bar">
         <span id="layer-menu-title">camada</span>
-        <button type="button" class="win__close" id="layer-menu-close" aria-label="Fechar">×</button>
+        <button type="button" class="win__close" id="layer-menu-close" aria-label="Fechar"><i data-icon="close"></i></button>
       </div>
       <div class="layer-menu-win__body">
         <div class="ctrl-row" id="layer-menu-opacity">
           <span class="ctrl-row__label">opacidade</span>
           <div class="stepper">
-            <button type="button" class="stepper__btn" id="layer-op-down" aria-label="Menos">&#9664;</button>
+            <button type="button" class="stepper__btn" id="layer-op-down" aria-label="Menos"><i data-icon="left"></i></button>
             <span class="stepper__stage"><span class="stepper__val" id="layer-op-val">100%</span></span>
-            <button type="button" class="stepper__btn" id="layer-op-up" aria-label="Mais">&#9654;</button>
+            <button type="button" class="stepper__btn" id="layer-op-up" aria-label="Mais"><i data-icon="right"></i></button>
           </div>
         </div>
-        <button type="button" class="proj-action" id="layer-menu-rename">Renomear</button>
-        <button type="button" class="proj-action" id="layer-menu-dup">Duplicar</button>
-        <button type="button" class="proj-action" id="layer-menu-lock">Bloquear</button>
-        <button type="button" class="proj-action proj-action--danger" id="layer-menu-del">Apagar camada</button>
+        <button type="button" class="proj-action" id="layer-menu-rename"><i data-icon="edit"></i>Renomear</button>
+        <button type="button" class="proj-action" id="layer-menu-dup"><i data-icon="layers"></i>Duplicar</button>
+        <button type="button" class="proj-action" id="layer-menu-lock"><i data-icon="lock"></i><span id="layer-menu-lock-label">Bloquear</span></button>
+        <button type="button" class="proj-action proj-action--danger" id="layer-menu-del"><i data-icon="trash"></i>Apagar camada</button>
       </div>
     </div>
   </div>
@@ -279,10 +362,10 @@
     <div class="win rename-win">
       <div class="win__bar">
         <span>renomear camada</span>
-        <button type="button" class="win__close" id="layer-rename-close" aria-label="Fechar">×</button>
+        <button type="button" class="win__close" id="layer-rename-close" aria-label="Fechar"><i data-icon="close"></i></button>
       </div>
       <div class="rename-win__body">
-        <input type="text" class="rename-win__input" id="layer-rename-input" maxlength="24" spellcheck="false">
+        <input type="text" class="rename-win__input" id="layer-rename-input" maxlength="24" spellcheck="false" aria-label="nome da camada">
         <div class="rename-win__foot">
           <button type="button" class="ui-btn" id="layer-rename-cancel">Cancelar</button>
           <button type="button" class="ui-btn ui-btn--go" id="layer-rename-confirm">Salvar</button>
@@ -290,6 +373,9 @@
       </div>
     </div>
   </div>
+
+  <!-- Aviso curto (salvo, cor capturada, erros) -->
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
   <!-- Transição íris pixelada (canvas de baixa resolução ampliado) -->
   <canvas id="wipe" class="wipe" hidden></canvas>

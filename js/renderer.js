@@ -2,10 +2,29 @@ import { state, TOOL_DEFS, getActiveLayer } from './state.js';
 import { densify, wob } from './wiggle.js';
 import { mirrorFlips, mapX, mapY } from './mirror.js';
 import { shapeOutline } from './shapes.js';
+import { maskCanvas } from './fill.js';
+import { referenceImage } from './reference.js';
+
+/**
+ * Quantos quadros distintos o tremor tem. O ciclo repete-se, como as linhas
+ * "a ferver" da animação clássica — e cada quadro de cada camada só é
+ * desenhado uma vez: com a tela parada, o loop só copia imagens prontas.
+ */
+export const JITTER_CYCLE = 3;
+
+/** Canvas do tamanho da tela (cria ou redimensiona). */
+function sizedCanvas(canvas) {
+  const c = canvas || document.createElement('canvas');
+  if (c.width !== state.canvasWidth || c.height !== state.canvasHeight) {
+    c.width = state.canvasWidth;
+    c.height = state.canvasHeight;
+  }
+  return c;
+}
 
 /**
  * Loop de render — tremor ~12fps; traço ativo repintado em fast-path (~60fps).
- * Camadas cacheadas por jitter → não redesenha tudo a cada frame.
+ * Camadas cacheadas por fase do ciclo → não redesenha tudo a cada frame.
  */
 export class Renderer {
   constructor(engine) {
@@ -15,12 +34,19 @@ export class Renderer {
     this.jitterFrame = 0;
     this.running = false;
     this.needsDraw = true;
-    this._layerCaches = new Map();
-    this._activeStatic = null;
+    this._layerCaches = new Map(); // layer.id → [{ canvas, ok }] por fase
+    this._liveStatic = [];         // fase → camada ativa sem o traço em curso
+    this._liveStaticOk = [];
     this._activeLive = null;
     this._liveLayerId = null; // camada cujo conteúdo está em _activeLive neste traço
-    this._activeStaticJitter = -1;
-    this._activeStaticReady = false;
+    this._still = false;      // true → desenha sem tremor (imagem "parada" para o balde)
+    this.hideReference = false; // true durante exportações e miniaturas
+    this.transparentBg = false; // true ao exportar PNG sem fundo
+  }
+
+  /** Fase atual do ciclo de tremor (0..JITTER_CYCLE-1). */
+  get phase() {
+    return this.jitterFrame % JITTER_CYCLE;
   }
 
   start() {
@@ -36,54 +62,43 @@ export class Renderer {
   invalidate() {
     this.needsDraw = true;
     this._layerCaches.clear();
-    this._activeStaticReady = false;
+    this._liveStaticOk = [];
   }
 
   beginLiveStroke() {
-    const layer = getActiveLayer();
-    if (!layer || state.isShapeDrawing) return;
-    const W = state.canvasWidth;
-    const H = state.canvasHeight;
-    if (!this._activeStatic) this._activeStatic = document.createElement('canvas');
-    this._activeStatic.width = W;
-    this._activeStatic.height = H;
-    const cc = this._activeStatic.getContext('2d');
-    cc.clearRect(0, 0, W, H);
-    for (const path of layer.paths) {
-      if (path === state.currentPath) continue;
-      this._drawPath(cc, path);
-    }
-    this._activeStaticJitter = this.jitterFrame;
-    this._activeStaticReady = true;
+    this._liveStaticOk = [];
   }
 
   endLiveStroke() {
-    this._activeStaticReady = false;
+    this._liveStaticOk = [];
     this._liveLayerId = null;
     const layer = getActiveLayer();
     if (layer) this._layerCaches.delete(layer.id);
   }
 
-  _bakeLayer(layer, excludePath = null) {
-    const W = state.canvasWidth;
-    const H = state.canvasHeight;
-    let entry = this._layerCaches.get(layer.id);
-    if (!entry) {
-      entry = { canvas: document.createElement('canvas'), jitter: -1 };
-      this._layerCaches.set(layer.id, entry);
-    }
-    if (entry.canvas.width !== W || entry.canvas.height !== H) {
-      entry.canvas.width = W;
-      entry.canvas.height = H;
-    }
-    const cc = entry.canvas.getContext('2d');
-    cc.clearRect(0, 0, W, H);
+  _paintLayer(canvas, layer, excludePath = null) {
+    const cc = canvas.getContext('2d');
+    cc.clearRect(0, 0, canvas.width, canvas.height);
     for (const path of layer.paths) {
       if (path === excludePath) continue;
       this._drawPath(cc, path);
     }
-    entry.jitter = this.jitterFrame;
-    return entry.canvas;
+    return canvas;
+  }
+
+  /** Camada na fase atual — só desenha se essa fase ainda não estiver em cache. */
+  _cachedLayer(layer) {
+    let slots = this._layerCaches.get(layer.id);
+    if (!slots) {
+      slots = [];
+      this._layerCaches.set(layer.id, slots);
+    }
+    const slot = slots[this.phase];
+    if (!slot?.ok) {
+      const canvas = this._paintLayer(sizedCanvas(slot?.canvas), layer);
+      slots[this.phase] = { canvas, ok: true };
+    }
+    return slots[this.phase].canvas;
   }
 
   /**
@@ -93,35 +108,42 @@ export class Renderer {
    */
   layerCanvas(layer) {
     if (state.isDrawing && this._liveLayerId === layer.id) return this._activeLive;
-    return this._bakeLayer(layer);
+    const slot = this._layerCaches.get(layer.id)?.[this.phase];
+    if (slot) slot.ok = false;
+    return this._cachedLayer(layer);
   }
 
-  /** Canvas de trabalho da camada ativa durante o traço (estático + traço vivo). */
-  _liveCanvas() {
-    const W = state.canvasWidth;
-    const H = state.canvasHeight;
-    if (!this._activeLive) this._activeLive = document.createElement('canvas');
-    if (this._activeLive.width !== W || this._activeLive.height !== H) {
-      this._activeLive.width = W;
-      this._activeLive.height = H;
+  /**
+   * Camada ativa durante o traço: o resto da camada (em cache por fase) + o
+   * traço vivo, compostos à parte — a borracha (destination-out) e o marcador
+   * (multiply) só afetam a própria camada, igual ao resultado final.
+   */
+  _liveLayer(layer) {
+    const ph = this.phase;
+    if (!this._liveStaticOk[ph]) {
+      this._liveStatic[ph] = this._paintLayer(sizedCanvas(this._liveStatic[ph]), layer, state.currentPath);
+      this._liveStaticOk[ph] = true;
     }
-    return this._activeLive;
+    const live = this._activeLive = sizedCanvas(this._activeLive);
+    const lc = live.getContext('2d');
+    lc.clearRect(0, 0, live.width, live.height);
+    lc.drawImage(this._liveStatic[ph], 0, 0);
+    this._drawPath(lc, state.currentPath);
+    this._liveLayerId = layer.id;
+    return live;
   }
 
   _loop(t) {
     if (!this.running) return;
     requestAnimationFrame((x) => this._loop(x));
 
-    let jitterChanged = false;
     if (t - this.lastJitter >= this.jitterInterval) {
       this.jitterFrame++;
       this.lastJitter = t;
-      jitterChanged = true;
-      this._layerCaches.clear();
-      this._activeStaticReady = false;
+      this.needsDraw = true;
     }
 
-    if (state.isDrawing || jitterChanged || this.needsDraw) {
+    if (state.isDrawing || this.needsDraw) {
       this._draw();
       this.needsDraw = false;
     }
@@ -129,64 +151,79 @@ export class Renderer {
 
   _draw() {
     const ctx = this.engine.ctx;
-    const active = getActiveLayer();
-    const canFast = state.isDrawing && state.currentPath && !state.isShapeDrawing
-      && this._activeStaticReady && this._activeStaticJitter === this.jitterFrame;
+    const live = state.isDrawing && state.currentPath && !state.isShapeDrawing;
+    const liveId = live ? getActiveLayer()?.id : null;
 
-    if (canFast) {
-      this.engine.fillBackground();
-      for (const layer of state.layers) {
-        if (!layer.visible) continue;
-        ctx.save();
-        ctx.globalAlpha = layer.opacity;
-        if (layer.id === active?.id) {
-          // Compõe a camada à parte: a borracha (destination-out) e o marcador
-          // (multiply) só afetam a própria camada, igual ao resultado final.
-          const live = this._liveCanvas();
-          const lc = live.getContext('2d');
-          lc.clearRect(0, 0, live.width, live.height);
-          lc.drawImage(this._activeStatic, 0, 0);
-          this._drawPath(lc, state.currentPath);
-          this._liveLayerId = layer.id;
-          ctx.drawImage(live, 0, 0);
-        } else {
-          const cached = this._layerCaches.get(layer.id);
-          if (cached?.jitter === this.jitterFrame) {
-            ctx.drawImage(cached.canvas, 0, 0);
-          } else {
-            ctx.drawImage(this._bakeLayer(layer), 0, 0);
-          }
-        }
-        ctx.restore();
-      }
-      return;
-    }
-
-    this.engine.fillBackground();
-    if (!state.layers.length) return;
-
+    this.engine.fillBackground(this.transparentBg);
+    this._drawReference(ctx, false);
     for (const layer of state.layers) {
       if (!layer.visible) continue;
       ctx.save();
       ctx.globalAlpha = layer.opacity;
-      const cached = this._layerCaches.get(layer.id);
-      if (cached?.jitter === this.jitterFrame && !state.isDrawing) {
-        ctx.drawImage(cached.canvas, 0, 0);
-      } else {
-        ctx.drawImage(this._bakeLayer(layer), 0, 0);
-      }
+      ctx.drawImage(layer.id === liveId ? this._liveLayer(layer) : this._cachedLayer(layer), 0, 0);
       ctx.restore();
     }
-
-    if (state.isDrawing && state.currentPath && !state.isShapeDrawing) {
-      this.beginLiveStroke();
-    }
+    this._drawReference(ctx, true);
   }
 
+  /** Imagem de referência por baixo (above=false) ou por cima (above=true) das camadas. */
+  _drawReference(ctx, above) {
+    const ref = state.reference;
+    if (!ref || !ref.visible || Boolean(ref.above) !== above || this.hideReference) return;
+    const img = referenceImage(ref, () => { this.needsDraw = true; });
+    if (!img) return;
+    ctx.save();
+    ctx.globalAlpha = ref.opacity;
+    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(img, ref.x, ref.y, ref.w, ref.h);
+    ctx.restore();
+  }
+
+  /** Redesenha já, sem esperar o próximo frame (ex.: antes de ler um pixel da tela). */
+  drawNow() {
+    this._draw();
+    this.needsDraw = false;
+  }
+
+  /**
+   * O desenho visível SEM tremor (fundo + camadas), como ImageData — é sobre
+   * esta imagem que o balde procura a região, para não depender da fase.
+   */
+  renderStill() {
+    const W = state.canvasWidth;
+    const H = state.canvasHeight;
+    const out = document.createElement('canvas');
+    out.width = W;
+    out.height = H;
+    const ctx = out.getContext('2d', { willReadFrequently: true });
+    ctx.fillStyle = state.bgColor;
+    ctx.fillRect(0, 0, W, H);
+    const tmp = document.createElement('canvas');
+    tmp.width = W;
+    tmp.height = H;
+    this._still = true;
+    try {
+      for (const layer of state.layers) {
+        if (!layer.visible) continue;
+        this._paintLayer(tmp, layer);
+        ctx.globalAlpha = layer.opacity;
+        ctx.drawImage(tmp, 0, 0);
+      }
+    } finally {
+      this._still = false;
+    }
+    ctx.globalAlpha = 1;
+    return ctx.getImageData(0, 0, W, H);
+  }
+
+  /** Amplitude do tremor de um motor (0 na imagem parada). */
+  _amp(def) {
+    return this._still ? 0 : def.amp;
+  }
+
+  /** Avança uma fase e desenha já (usado para capturar os quadros do GIF). */
   stepFrame() {
     this.jitterFrame++;
-    this._layerCaches.clear();
-    this._activeStaticReady = false;
     this._draw();
   }
 
@@ -194,12 +231,18 @@ export class Renderer {
     const def = TOOL_DEFS[path.tool] || TOOL_DEFS.pen;
     // A borracha apaga (destination-out) dentro da camada — a cor é irrelevante.
     const color = def.eraser ? '#000000' : path.color;
-    const f = this.jitterFrame;
+    const f = this.phase;
     const W = state.canvasWidth;
     const H = state.canvasHeight;
 
+    if (path.mask) {
+      this._drawFill(ctx, path);
+      return;
+    }
     for (const { flipX, flipY } of mirrorFlips(path.mirrorH, path.mirrorV)) {
-      if (def.shape || path.shape) {
+      if (path.cells) {
+        this._drawCells(ctx, path, color, def, f, W, H, flipX, flipY);
+      } else if (def.shape || path.shape) {
         this._drawShape(ctx, path, color, def, f, W, H, flipX, flipY);
       } else if (def.spray) {
         this._drawSpray(ctx, path, color, def, f, W, H, flipX, flipY);
@@ -212,7 +255,7 @@ export class Renderer {
   _drawShape(ctx, path, color, def, f, W, H, flipX, flipY) {
     const outline = shapeOutline(path);
     if (outline.length < 2) return;
-    const amp = def.amp;
+    const amp = this._amp(def);
     const dense = densify(outline, 3);
     const jp = dense.map((pt) => ({
       x: mapX(pt.x + wob(pt.x, pt.y, f) * amp, W, flipX),
@@ -237,7 +280,7 @@ export class Renderer {
     if (!path.points.length) return;
 
     const dense = densify(path.points, 3);
-    const amp = def.amp;
+    const amp = this._amp(def);
     const jp = dense.map((pt) => ({
       x: mapX(pt.x + wob(pt.x, pt.y, f) * amp, W, flipX),
       y: mapY(pt.y + wob(pt.y, pt.x, f + 19.3) * amp, H, flipY),
@@ -289,11 +332,57 @@ export class Renderer {
     const layerAlpha = ctx.globalAlpha;
     ctx.globalAlpha = layerAlpha * def.alpha * (path.opacity ?? 1);
     ctx.fillStyle = color;
+    const amp = this._amp(def);
     for (const q of path.particles) {
-      const x = mapX((q.x + wob(q.x, q.y, f) * def.amp) | 0, W, flipX);
-      const y = mapY((q.y + wob(q.y, q.x, f + 7.1) * def.amp) | 0, H, flipY);
+      const x = mapX((q.x + wob(q.x, q.y, f) * amp) | 0, W, flipX);
+      const y = mapY((q.y + wob(q.y, q.x, f + 7.1) * amp) | 0, H, flipY);
       ctx.fillRect(x, y, 1, 1);
     }
+    ctx.restore();
+  }
+
+  /**
+   * Pixel art: cada célula é um quadrilátero com os cantos a tremer. O tremor
+   * depende só da posição do canto, por isso células vizinhas partilham os
+   * cantos e nunca abrem frestas — a pixel art treme inteira, como um bloco.
+   */
+  _drawCells(ctx, path, color, def, f, W, H, flipX, flipY) {
+    if (!path.cells.length) return;
+    const g = path.grid;
+    const amp = this._amp(def) * 0.7;
+    const corner = (x, y) => [
+      mapX(x + wob(x, y, f) * amp, W, flipX),
+      mapY(y + wob(y, x, f + 19.3) * amp, H, flipY),
+    ];
+    ctx.save();
+    ctx.globalAlpha *= def.alpha * (path.opacity ?? 1);
+    ctx.globalCompositeOperation = def.eraser ? 'destination-out' : def.composite;
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    for (const [cx, cy] of path.cells) {
+      const x0 = cx * g;
+      const y0 = cy * g;
+      const a = corner(x0, y0);
+      const b = corner(x0 + g, y0);
+      const c = corner(x0 + g, y0 + g);
+      const d = corner(x0, y0 + g);
+      ctx.moveTo(a[0], a[1]);
+      ctx.lineTo(b[0], b[1]);
+      ctx.lineTo(c[0], c[1]);
+      ctx.lineTo(d[0], d[1]);
+      ctx.closePath();
+    }
+    ctx.fill();
+    ctx.restore();
+  }
+
+  /** Preenchimento do balde: por baixo do que já está na camada, para as linhas tremerem por cima. */
+  _drawFill(ctx, path) {
+    const m = path.mask;
+    ctx.save();
+    ctx.globalAlpha *= path.opacity ?? 1;
+    ctx.globalCompositeOperation = 'destination-over';
+    ctx.drawImage(maskCanvas(m, path.color), m.x, m.y);
     ctx.restore();
   }
 }

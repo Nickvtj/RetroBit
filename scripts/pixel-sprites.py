@@ -194,6 +194,28 @@ for j, row in enumerate(skull):
             s.put(34 + i, 6 + j, K)
 s.save("spray")
 
+# ── balde de tinta (lata deitada a derramar para a esquerda) ─
+s = Sprite()
+for x in range(37, 56):                  # alça de arame
+    s.put(x, 1, MET_D)
+for x, y in ((35, 3), (36, 2), (56, 2), (57, 3)):
+    s.put(x, y, MET_D)
+s.band(30, 62, 5, 17, metal)             # lata
+s.band(36, 56, 6, 16, body)              # rótulo (cor)
+s.band(28, 29, 4, 18, lambda x, y, a, b: MET_L if y == a + 1 else MET_D)   # aro da boca
+s.band(63, 64, 4, 18, lambda x, y, a, b: MET_L if y == a + 1 else MET_D)   # aro do fundo
+s.cut((64, 4), (64, 18))
+s.band(25, 27, 6, 16, DARK)              # boca (interior escuro)
+for x in range(4, 27):                   # tinta a escorrer (cor)
+    top = round(15 - (x - 4) * 5 / 22)
+    s.column(x, 0, 0, lambda x, y, a, b: TL if y == a else (TS if y == b else TW), top, 16)
+for x, y1 in ((9, 19), (13, 18), (18, 20)):   # pingos
+    for y in range(17, y1 + 1):
+        s.put(x, y, TS if y == y1 else TW)
+for p in ((1, 15), (2, 15), (1, 16), (2, 16)):  # gota solta
+    s.put(*p, TW)
+s.save("bucket")
+
 # ── borracha (não é tingida) ─────────────────────────────────
 s = Sprite()
 s.band(8, 58, 10, 17, lambda x, y, a, b: BLUE if x >= 34 else PINK)       # frente

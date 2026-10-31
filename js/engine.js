@@ -23,7 +23,12 @@ export class CanvasEngine {
     this.clearOverlay();
   }
 
-  fillBackground() {
+  /** Pinta o fundo (ou limpa, para exportar PNG transparente). */
+  fillBackground(transparent = false) {
+    if (transparent) {
+      this.ctx.clearRect(0, 0, this.width, this.height);
+      return;
+    }
     this.ctx.fillStyle = getCanvasBg();
     this.ctx.fillRect(0, 0, this.width, this.height);
   }
@@ -41,12 +46,17 @@ export class CanvasEngine {
     drawShapePreview(this.overlayCtx, draft, this.getStrokeColor());
   }
 
-  getCanvasPos(e) {
+  /**
+   * Posição do ponteiro em coordenadas da tela. Sem `clamp` pode sair dos
+   * limites: um traço que sai e volta não pode "andar" colado à borda.
+   */
+  getCanvasPos(e, clamp = true) {
     const rect = this.mainCanvas.getBoundingClientRect();
     const scaleX = this.width / rect.width;
     const scaleY = this.height / rect.height;
     const x = (e.clientX - rect.left) * scaleX;
     const y = (e.clientY - rect.top) * scaleY;
+    if (!clamp) return { x, y };
     return {
       x: Math.max(0, Math.min(this.width - 1, x)),
       y: Math.max(0, Math.min(this.height - 1, y)),
@@ -80,11 +90,45 @@ export class CanvasEngine {
     return { x, y, w, h };
   }
 
-  exportPNG() {
+  exportPNG(filename = `retrobit_${Date.now()}.png`) {
     const link = document.createElement('a');
-    link.download = `retrobit_${Date.now()}.png`;
+    link.download = filename;
     link.href = this.mainCanvas.toDataURL('image/png');
     link.click();
+  }
+
+  /**
+   * Traços a explodir (bomba da luva): cada ponto vira um pixel da cor do
+   * traço que salta e cai, no overlay. `bits` = [{ x, y, c }].
+   */
+  explodeBits(bits) {
+    const ctx = this.overlayCtx;
+    const W = this.width;
+    const H = this.height;
+    const parts = bits.map((b) => {
+      const a = Math.random() * Math.PI * 2;
+      const sp = 1 + Math.random() * 5;
+      return { x: b.x, y: b.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - 2.5, sz: 2 + ((Math.random() * 2) | 0), c: b.c };
+    });
+    const start = performance.now();
+    const duration = 650;
+    const step = (now) => {
+      const t = (now - start) / duration;
+      ctx.clearRect(0, 0, W, H);
+      if (t >= 1) return;
+      ctx.globalAlpha = 1 - t * t;
+      for (const p of parts) {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.4; // gravidade
+        p.vx *= 0.97;
+        ctx.fillStyle = p.c;
+        ctx.fillRect(p.x | 0, p.y | 0, p.sz, p.sz);
+      }
+      ctx.globalAlpha = 1;
+      requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
   }
 
   /**

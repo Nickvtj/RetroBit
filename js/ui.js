@@ -1,55 +1,42 @@
-import { TOOLS, SHAPES, BRUSH_SIZES, OPACITIES, RESOLUTIONS, state } from './state.js';
+import { TOOLS, SHAPES, BRUSH_SIZES, RESOLUTIONS, state } from './state.js';
 import { getTintedToolUrl } from './tool-art.js';
-import { playSwitch, playStart, resumeAudio, setMuted, isMuted } from './audio.js';
-import { listProjects, deleteProject, renameProject, getProject } from './projects.js';
+import { playSwitch, playStart, playSave, playError, playColor, resumeAudio, setMuted, isMuted } from './audio.js';
+import { listProjects, deleteProject, renameProject, getProject, getDraft } from './projects.js';
 import { escapeHtml } from './util.js';
+import { icon, hydrateIcons, cursorCss, CURSOR_NAMES } from './icons.js';
+import { initFx, toolFx, bindDynamite } from './fx.js';
+import { buildColorGrid, markCurrentSwatch, HEX_RE } from './palette.js';
+import { createQuickMenu } from './quick-menu.js';
+import { enablePaintDrag } from './paint-drag.js';
+import { t, lang, setLang } from './i18n.js';
+
+const tr = t; // em ciclos onde `t` é uma ferramenta
+import { VERSION } from './version.js';
+import { startTour } from './tour.js';
 
 const MUTE_KEY = 'retrobit-muted';
-
-/* ── Paleta partilhada (cor da ferramenta e cor do fundo) ── */
-function hslToHex(h, s, l) {
-  s /= 100; l /= 100;
-  const k = (n) => (n + h / 30) % 12;
-  const a = s * Math.min(l, 1 - l);
-  const f = (n) => {
-    const c = l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-    return Math.round(255 * c).toString(16).padStart(2, '0');
-  };
-  return `#${f(0)}${f(8)}${f(4)}`;
-}
-function buildPalette() {
-  const hues = [0, 20, 40, 65, 90, 140, 175, 200, 225, 260, 290, 320];
-  const lights = [80, 64, 50, 36];
-  const s = [];
-  for (const l of lights) for (const h of hues) s.push(hslToHex(h, 72, l));
-  for (let i = 0; i < hues.length; i++) {
-    const v = Math.round((i / (hues.length - 1)) * 255).toString(16).padStart(2, '0');
-    s.push(`#${v}${v}${v}`);
-  }
-  return s;
-}
 
 export function createUI(callbacks) {
   const $ = (id) => document.getElementById(id);
   const els = {
     splash: $('splash'), gallery: $('gallery'), app: $('app'), wipe: $('wipe'),
-    btnStart: $('btn-start'), galleryGrid: $('gallery-grid'), btnBack: $('btn-back'),
-    toolList: $('tool-list'),
+    btnStart: $('btn-start'), galleryGrid: $('gallery-grid'), btnBack: $('btn-back'), parade: $('splash-parade'),
+    toolList: $('tool-list'), mainCanvas: $('main-canvas'),
     btnClear: $('btn-clear'),
+    dock: $('dock'), dockMore: $('dock-more'), btnMore: $('btn-more'), btnLayers: $('btn-layers'),
     btnSave: $('btn-save'), btnExportGif: $('btn-export-gif'),
-    btnBackground: $('btn-background'), btnCrop: $('btn-crop'),
+    btnBackground: $('btn-background'), btnCrop: $('btn-crop'), btnRef: $('btn-ref'),
     btnUndo: $('btn-undo'), btnRedo: $('btn-redo'), btnSound: $('btn-sound'),
-    cropHint: $('crop-hint'),
+    cropHint: $('crop-hint'), pickHint: $('pick-hint'), toast: $('toast'),
     exportModal: $('export-modal'), exportClose: $('export-close'),
     exportGif: $('export-gif'), exportPng: $('export-png'),
+    exportGifBig: $('export-gif-big'), exportPngClear: $('export-png-clear'), exportProject: $('export-project'),
+    projectFile: $('project-file'), btnLang: $('btn-lang'), btnHelp: $('btn-help'), version: $('app-version'),
     leaveModal: $('leave-modal'), leaveClose: $('leave-close'), leaveCancel: $('leave-cancel'),
     leaveDiscard: $('leave-discard'), leaveSave: $('leave-save'),
-    btnMirrorH: $('btn-mirror-h'), btnMirrorV: $('btn-mirror-v'),
+    btnMirrorH: $('btn-mirror-h'), btnMirrorV: $('btn-mirror-v'), btnSelect: $('btn-select'),
+    btnGrid: $('btn-grid'), gridVal: $('grid-val'),
     btnShapeRect: $('btn-shape-rect'), btnShapeEllipse: $('btn-shape-ellipse'), btnShapeLine: $('btn-shape-line'),
-    colorModal: $('color-modal'), colorGrid: $('color-grid'), colorTitle: $('color-win-title'),
-    colorCurrent: $('color-current'), colorHex: $('color-hex'), colorClose: $('color-close'),
-    mOpDown: $('modal-op-down'), mOpUp: $('modal-op-up'), mOpVal: $('modal-op-val'),
-    mSizeDown: $('modal-size-down'), mSizeUp: $('modal-size-up'), mSizeDot: $('modal-size-dot'),
     bgModal: $('bg-modal'), bgGrid: $('bg-grid'), bgCurrent: $('bg-current'),
     bgHex: $('bg-hex'), bgClose: $('bg-close'),
     resModal: $('res-modal'), resList: $('res-list'), resClose: $('res-close'),
@@ -59,11 +46,19 @@ export function createUI(callbacks) {
     renameCancel: $('rename-cancel'), renameConfirm: $('rename-confirm'),
     delModal: $('del-modal'), delName: $('del-name'), delClose: $('del-close'),
     delCancel: $('del-cancel'), delConfirm: $('del-confirm'),
+    recoverModal: $('recover-modal'), recoverMsg: $('recover-msg'), recoverClose: $('recover-close'),
+    recoverDiscard: $('recover-discard'), recoverOpen: $('recover-open'),
   };
-  let colorTargetKey = null;
-  let colorTargetShapeKey = null;
+  const shapeButtons = [els.btnShapeRect, els.btnShapeEllipse, els.btnShapeLine];
   let menuTargetId = null;
   let irisBusy = false;
+  let toastTimer = 0;
+
+  const quick = createQuickMenu({
+    onChange: onSettingsChange,
+    onStartPick: () => setPickMode(true),
+    onDropPaint: (x, y, paint) => callbacks.onDropFill?.(x, y, paint.color, paint.opacity),
+  });
 
   /* ── Transição íris pixelada ────────────────────────────────
      Desenha um círculo numa grelha de baixa resolução (~84px) que o CSS amplia
@@ -107,26 +102,38 @@ export function createUI(callbacks) {
     [els.splash, els.gallery, els.app].forEach((s) => { s.hidden = s !== el; });
   }
 
+  /** Aviso curto no fundo da tela (ex.: "Salvo!"). */
+  function toast(text) {
+    els.toast.textContent = text;
+    els.toast.hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => { els.toast.hidden = true; }, 1600);
+  }
+
   /* ── Galeria ────────────────────────────────────────────── */
   function renderGallery() {
     const projects = listProjects();
     const tiles = [`
-      <button type="button" class="tile tile--new" data-new="1">
-        <span class="tile__plus">+</span>
-        <span class="tile__name">Novo projeto</span>
+      <button type="button" class="tile tile--new" data-new="1" style="--i:0">
+        <span class="tile__plus">${icon('plus')}</span>
+        <span class="tile__name">${t('Novo projeto')}</span>
+      </button>`, `
+      <button type="button" class="tile tile--new tile--open" data-import="1" style="--i:1" title="${t('abrir um projeto .retrobit')}">
+        <span class="tile__plus">${icon('folder')}</span>
+        <span class="tile__name">${t('Abrir arquivo')}</span>
       </button>`];
-    for (const p of projects) {
+    projects.forEach((p, i) => {
       const thumb = p.thumb
         ? `<img src="${p.thumb}" alt="" draggable="false">`
         : '<span class="tile__empty"></span>';
       tiles.push(`
-        <div class="tile" data-open="${p.id}">
+        <div class="tile" data-open="${p.id}" style="--i:${Math.min(i + 2, 12)}">
           <div class="tile__thumb">${thumb}
-            <button type="button" class="tile__menu" data-menu="${p.id}" title="renomear ou excluir">✎</button>
+            <button type="button" class="tile__menu" data-menu="${p.id}" title="${t('renomear ou excluir')}">${icon('edit')}</button>
           </div>
           <span class="tile__name">${escapeHtml(p.name)}</span>
         </div>`);
-    }
+    });
     els.galleryGrid.innerHTML = tiles.join('');
 
     els.galleryGrid.querySelector('[data-new]')?.addEventListener('click', () => {
@@ -135,6 +142,7 @@ export function createUI(callbacks) {
       iris(() => { callbacks.onNewProject?.(); showOnly(els.app); callbacks.onAppReady?.(); });
       playStart();
     });
+    els.galleryGrid.querySelector('[data-import]')?.addEventListener('click', () => els.projectFile.click());
     els.galleryGrid.querySelectorAll('[data-open]').forEach((tile) => {
       tile.addEventListener('click', (e) => {
         if (e.target.closest('[data-menu]') || irisBusy) return;
@@ -150,6 +158,14 @@ export function createUI(callbacks) {
         openProjMenu(btn.dataset.menu);
       });
     });
+  }
+
+  /** Ficheiro .retrobit → novo projeto na galeria. */
+  async function importProjectFile(file) {
+    if (!file) return;
+    const ok = await callbacks.onImportProject?.(await file.text());
+    toast(ok ? t('projeto importado') : t('esse arquivo não é um projeto do RetroBit'));
+    if (ok) renderGallery();
   }
 
   /* ── Menu / renomear / apagar projeto ───────────────────── */
@@ -200,12 +216,22 @@ export function createUI(callbacks) {
     els.toolList.innerHTML = TOOLS.map((t) => {
       const active = t.key === state.activeKey ? ' is-active' : '';
       const solo = t.key === 'eraser' ? ' wp-tool--eraser' : '';
-      return `<button class="wp-tool${active}${solo}" type="button" data-key="${t.key}" title="${t.label}">
-        <img src="${t.img}" alt="${t.label}" draggable="false"></button>`;
+      return `<button class="wp-tool${active}${solo}" type="button" data-key="${t.key}" title="${tr(t.label)}" aria-label="${tr(t.label)}">
+        <img src="${t.img}" alt="" draggable="false"></button>`;
     }).join('');
     els.toolList.querySelectorAll('.wp-tool').forEach((btn) => {
       btn.addEventListener('click', () => selectTool(btn.dataset.key));
     });
+    // Balde: arrastar a lata até a tela pinta onde soltar.
+    const bucket = els.toolList.querySelector('[data-key="bucket"]');
+    if (bucket) {
+      enablePaintDrag(
+        bucket,
+        () => ({ color: state.toolColors.bucket, opacity: state.toolOpacity.bucket }),
+        (x, y, paint) => callbacks.onDropFill?.(x, y, paint.color, paint.opacity),
+        () => quick.close(),
+      );
+    }
     applyToolColors();
   }
 
@@ -232,18 +258,68 @@ export function createUI(callbacks) {
     if (shape) state.tool = shape.tool;
   }
 
-  function clearShapeSelection() {
-    state.activeShapeKey = null;
-    [els.btnShapeRect, els.btnShapeEllipse, els.btnShapeLine].forEach((b) => {
-      if (!b) return;
-      b.classList.remove('is-active');
-      b.setAttribute('aria-pressed', 'false');
+  /** O menu rápido mudou cor/tamanho/opacidade de uma ferramenta ou forma. */
+  function onSettingsChange() {
+    syncActiveSettings();
+    applyToolColors();
+    callbacks.onColorChange?.();
+  }
+
+  /** A tela muda de cursor conforme o modo (balde → mira, luva → mão). */
+  function updateCanvasMode() {
+    els.mainCanvas.classList.toggle('is-fill', state.tool === 'fill' && !state.activeShapeKey && !state.selectMode);
+    els.mainCanvas.classList.toggle('is-select', state.selectMode);
+  }
+
+  /** Botões do espelho seguem o estado (ex.: ao abrir outro projeto). */
+  function syncMirrors() {
+    [[els.btnMirrorH, state.mirrorH], [els.btnMirrorV, state.mirrorV]].forEach(([b, on]) => {
+      b.classList.toggle('is-active', on);
+      b.setAttribute('aria-pressed', String(on));
     });
   }
 
+  /* ── Grade de pixel art: desligada → 8 → 16 → 32 → desligada ── */
+  const GRID_STEPS = [0, 8, 16, 32];
+  function syncGrid() {
+    const on = state.grid > 0;
+    els.btnGrid.classList.toggle('is-active', on);
+    els.btnGrid.setAttribute('aria-pressed', String(on));
+    els.gridVal.hidden = !on;
+    els.gridVal.textContent = state.grid;
+  }
+  function cycleGrid() {
+    const i = GRID_STEPS.indexOf(state.grid);
+    state.grid = GRID_STEPS[(i + 1) % GRID_STEPS.length];
+    syncGrid();
+    playSwitch();
+    toast(state.grid ? t('grade de {n} px', { n: state.grid }) : t('grade desligada'));
+    callbacks.onGridChange?.();
+  }
+
+  /** Luva ligada: as canetas e formas deixam de estar ativas até se escolher uma. */
+  function setSelectMode(on) {
+    if (state.selectMode === on) return;
+    state.selectMode = on;
+    quick.close();
+    setPickMode(false);
+    els.btnSelect.classList.toggle('is-active', on);
+    els.btnSelect.setAttribute('aria-pressed', String(on));
+    els.toolList.querySelectorAll('.wp-tool').forEach((b) => {
+      b.classList.toggle('is-active', !on && !state.activeShapeKey && b.dataset.key === state.activeKey);
+    });
+    if (on) clearShapeSelection();
+    updateCanvasMode();
+    callbacks.onSelectMode?.(on);
+  }
+
+  function clearShapeSelection() {
+    state.activeShapeKey = null;
+    updateShapeButtons();
+  }
+
   function updateShapeButtons() {
-    [els.btnShapeRect, els.btnShapeEllipse, els.btnShapeLine].forEach((b) => {
-      if (!b) return;
+    shapeButtons.forEach((b) => {
       const on = b.dataset.shape === state.activeShapeKey;
       b.classList.toggle('is-active', on);
       b.setAttribute('aria-pressed', String(on));
@@ -254,7 +330,19 @@ export function createUI(callbacks) {
     const t = TOOLS.find((x) => x.key === key);
     if (!t) return;
     resumeAudio();
-    if (key === state.activeKey && !state.activeShapeKey) { openToolModal(t); return; }
+    setPickMode(false);
+    const fromSelect = state.selectMode;
+    setSelectMode(false);
+    // Segundo clique na ferramenta ativa → abre/fecha o menu rápido dela.
+    if (key === state.activeKey && !state.activeShapeKey && !fromSelect) {
+      if (quick.isOpenFor('tool', key)) quick.close();
+      else {
+        const anchor = els.toolList.querySelector(`[data-key="${key}"]`);
+        quick.open({ kind: 'tool', key, label: tr(t.label), anchor, eraser: t.tool === 'eraser', noSize: t.noSize, paint: t.tool === 'fill' });
+      }
+      return;
+    }
+    quick.close();
     clearShapeSelection();
     state.activeKey = key;
     state.tool = t.tool;
@@ -262,7 +350,9 @@ export function createUI(callbacks) {
     els.toolList.querySelectorAll('.wp-tool').forEach((b) => {
       b.classList.toggle('is-active', b.dataset.key === key);
     });
+    updateCanvasMode();
     playSwitch();
+    toolFx(els.toolList.querySelector(`[data-key="${key}"]`), key, state.toolColors[key]);
     callbacks.onToolChange?.(t.tool);
   }
 
@@ -270,148 +360,66 @@ export function createUI(callbacks) {
     const s = SHAPES.find((x) => x.key === key);
     if (!s) return;
     resumeAudio();
-    if (key === state.activeShapeKey) { openShapeModal(s); return; }
+    setPickMode(false);
+    setSelectMode(false);
+    if (key === state.activeShapeKey) {
+      if (quick.isOpenFor('shape', key)) quick.close();
+      else quick.open({ kind: 'shape', key, label: t(s.label), anchor: shapeButtons.find((b) => b.dataset.shape === key) });
+      return;
+    }
+    quick.close();
     state.activeShapeKey = key;
     state.tool = s.tool;
     syncShapeSettings();
     els.toolList.querySelectorAll('.wp-tool').forEach((b) => b.classList.remove('is-active'));
     updateShapeButtons();
+    updateCanvasMode();
     playSwitch();
     callbacks.onShapeChange?.();
   }
 
-  /* ── Modal cor + opacidade da ferramenta ────────────────── */
-  function buildColorGrid(gridEl, onPick) {
-    gridEl.innerHTML = buildPalette()
-      .map((hex) => `<button type="button" class="color-swatch" data-hex="${hex}" style="background:${hex}" title="${hex}"></button>`)
-      .join('');
-    gridEl.querySelectorAll('.color-swatch').forEach((sw) => {
-      sw.addEventListener('click', () => onPick(sw.dataset.hex));
-    });
-  }
-  function openToolModal(tool) {
-    colorTargetShapeKey = null;
-    colorTargetKey = tool.key;
-    const isEraser = tool.key === 'eraser' || tool.tool === 'eraser';
-    els.colorModal.classList.toggle('is-eraser', isEraser);
-    if (isEraser) {
-      els.colorTitle.textContent = `${tool.label} — tamanho`;
-    } else {
-      els.colorTitle.textContent = `${tool.label} — cor · opacidade · tamanho`;
-      els.colorCurrent.style.background = state.toolColors[tool.key];
-      els.colorHex.value = state.toolColors[tool.key];
-      els.mOpVal.textContent = `${Math.round(state.toolOpacity[tool.key] * 100)}%`;
-    }
-    updateModalSizeDot();
-    els.colorModal.hidden = false;
+  /* ── Conta-gotas ────────────────────────────────────────── */
+  function setPickMode(on) {
+    state.isPicking = on;
+    els.mainCanvas.classList.toggle('is-picking', on);
+    els.pickHint.hidden = !on;
   }
 
-  function openShapeModal(shape) {
-    colorTargetKey = null;
-    colorTargetShapeKey = shape.key;
-    els.colorModal.classList.remove('is-eraser');
-    els.colorTitle.textContent = `${shape.label} — cor · opacidade · tamanho`;
-    els.colorCurrent.style.background = state.shapeColors[shape.key];
-    els.colorHex.value = state.shapeColors[shape.key];
-    els.mOpVal.textContent = `${Math.round(state.shapeOpacity[shape.key] * 100)}%`;
-    updateModalSizeDot();
-    els.colorModal.hidden = false;
-  }
-
-  function modalSizeKey() {
-    return colorTargetShapeKey || colorTargetKey || state.activeShapeKey || state.activeKey;
-  }
-  function setToolColor(hex) {
-    const k = colorTargetShapeKey || colorTargetKey;
-    if (!k) return;
-    if (colorTargetShapeKey) {
-      state.shapeColors[k] = hex;
-      if (k === state.activeShapeKey) syncShapeSettings();
-    } else {
-      state.toolColors[k] = hex;
-      if (k === state.activeKey) syncActiveSettings();
-      applyToolColors();
-    }
-    updateModalSizeDot();
-    els.colorCurrent.style.background = hex;
-    els.colorHex.value = hex;
-    callbacks.onColorChange?.();
-  }
-  function changeOpacity(delta) {
-    const shapeKey = colorTargetShapeKey;
-    const toolKey = colorTargetKey;
-    if (shapeKey) {
-      let i = OPACITIES.indexOf(state.shapeOpacity[shapeKey]);
-      if (i < 0) i = OPACITIES.length - 1;
-      const next = i + delta;
-      if (next < 0 || next >= OPACITIES.length) return;
-      state.shapeOpacity[shapeKey] = OPACITIES[next];
-      if (shapeKey === state.activeShapeKey) syncShapeSettings();
-      els.mOpVal.textContent = `${Math.round(OPACITIES[next] * 100)}%`;
-      return;
-    }
-    if (!toolKey) return;
-    let i = OPACITIES.indexOf(state.toolOpacity[toolKey]);
-    if (i < 0) i = OPACITIES.length - 1;
-    const next = i + delta;
-    if (next < 0 || next >= OPACITIES.length) return;
-    state.toolOpacity[toolKey] = OPACITIES[next];
-    if (toolKey === state.activeKey) syncActiveSettings();
-    els.mOpVal.textContent = `${Math.round(OPACITIES[next] * 100)}%`;
-  }
-
-  /* ── Tamanho do traço (dentro do modal da ferramenta) ────── */
-  function updateModalSizeDot() {
-    const k = modalSizeKey();
-    const shapeMode = Boolean(colorTargetShapeKey || (!colorTargetKey && state.activeShapeKey));
-    const sizes = shapeMode ? state.shapeSizes : state.toolSizes;
-    const colors = shapeMode ? state.shapeColors : state.toolColors;
-    const px = Math.max(4, Math.min(30, BRUSH_SIZES[sizes[k]] + 4));
-    const isEraser = k === 'eraser' && !shapeMode;
-    els.mSizeDot.style.width = `${px}px`;
-    els.mSizeDot.style.height = `${px}px`;
-    els.mSizeDot.style.background = isEraser ? 'var(--fg)' : colors[k];
-  }
-  function changeSize(delta) {
-    if (colorTargetShapeKey) {
-      const next = state.shapeSizes[colorTargetShapeKey] + delta;
-      if (next < 0 || next >= BRUSH_SIZES.length) return;
-      state.shapeSizes[colorTargetShapeKey] = next;
-      if (colorTargetShapeKey === state.activeShapeKey) syncShapeSettings();
-      updateModalSizeDot();
-      return;
-    }
-    const k = colorTargetKey || state.activeKey;
-    const next = state.toolSizes[k] + delta;
-    if (next < 0 || next >= BRUSH_SIZES.length) return;
-    state.toolSizes[k] = next;
-    if (k === state.activeKey && !state.activeShapeKey) syncActiveSettings();
-    updateModalSizeDot();
+  /** Aplica uma cor tirada da tela à ferramenta (ou forma) ativa. */
+  function setActiveColor(hex) {
+    setPickMode(false);
+    if (state.activeShapeKey) state.shapeColors[state.activeShapeKey] = hex;
+    else if (state.tool !== 'eraser') state.toolColors[state.activeKey] = hex;
+    else return;
+    onSettingsChange();
+    playColor(hex);
+    toast(t('cor {hex}', { hex }));
   }
 
   /* ── Modal cor do fundo ─────────────────────────────────── */
   function openBgModal() {
     els.bgCurrent.style.background = state.bgColor;
     els.bgHex.value = state.bgColor;
+    markCurrentSwatch(els.bgGrid, state.bgColor);
     els.bgModal.hidden = false;
   }
   function setBg(hex) {
-    state.bgColor = hex;
+    if (hex !== state.bgColor) callbacks.onBgChange?.(hex);
     els.bgCurrent.style.background = hex;
     els.bgHex.value = hex;
-    callbacks.onBgChange?.();
+    markCurrentSwatch(els.bgGrid, hex);
   }
 
   /* ── Modal tamanho da tela (resolução) ──────────────────── */
   function buildResList() {
     els.resList.innerHTML = RESOLUTIONS.map((r, i) =>
       `<button type="button" class="res-opt" data-res="${i}">
-        <span class="res-opt__name">${r.label}</span>
+        <span class="res-opt__name">${t(r.label)}</span>
         <span class="res-opt__dim">${r.w} × ${r.h}</span>
       </button>`).join('') + `
       <button type="button" class="res-opt res-opt--crop" data-crop="1">
-        <span class="res-opt__name">recortar área</span>
-        <span class="res-opt__dim">arrastar ✂</span>
+        <span class="res-opt__name">${t('recortar área')}</span>
+        <span class="res-opt__dim">${t('arrastar')} ${icon('crop')}</span>
       </button>`;
     els.resList.querySelectorAll('[data-res]').forEach((b) => {
       b.addEventListener('click', () => {
@@ -439,7 +447,7 @@ export function createUI(callbacks) {
   function applySound(muted) {
     setMuted(muted);
     els.btnSound.classList.toggle('is-off', muted);
-    els.btnSound.title = muted ? 'ligar som' : 'desligar som';
+    els.btnSound.title = muted ? t('ligar som') : t('desligar som');
     els.btnSound.setAttribute('aria-pressed', String(muted));
   }
   function toggleSound() {
@@ -448,9 +456,27 @@ export function createUI(callbacks) {
     try { localStorage.setItem(MUTE_KEY, muted ? '1' : '0'); } catch { /* sem storage */ }
   }
 
+  /* ── Gaveta de camadas e menu "⋯" (telas compactas) ─────── */
+  function setLayersOpen(open) {
+    els.app.classList.toggle('is-layers-open', open);
+    els.btnLayers.setAttribute('aria-expanded', String(open));
+  }
+  function setMoreOpen(open) {
+    els.dock.classList.toggle('is-more-open', open);
+    els.btnMore.setAttribute('aria-expanded', String(open));
+  }
+  /** Fecha os painéis flutuantes (ex.: ao começar a desenhar). */
+  function closeFloating() {
+    setLayersOpen(false);
+    setMoreOpen(false);
+    quick.close();
+  }
+
   /* ── Sair da tela de desenho (avisa se houver alterações) ── */
   function goToGallery() {
     cancelCrop();
+    closeFloating();
+    setPickMode(false);
     iris(() => { renderGallery(); showOnly(els.gallery); });
   }
   function requestLeave() {
@@ -458,21 +484,44 @@ export function createUI(callbacks) {
     else goToGallery();
   }
 
-  function save() {
-    const ok = callbacks.onSave?.() !== false;
-    flash(els.btnSave, ok ? 'Salvo!' : 'Sem espaço!');
+  async function save() {
+    const ok = (await callbacks.onSave?.()) !== false;
+    (ok ? playSave : playError)();
+    flash(els.btnSave);
+    toast(ok ? t('Salvo!') : t('Sem espaço para salvar!'));
     return ok;
   }
 
   function closeAllModals() {
-    [els.colorModal, els.bgModal, els.resModal, els.projModal, els.renameModal,
-      els.delModal, els.exportModal, els.leaveModal].forEach((m) => { m.hidden = true; });
+    [els.bgModal, els.resModal, els.projModal, els.renameModal, els.delModal,
+      els.exportModal, els.leaveModal, els.recoverModal, $('ref-modal')].forEach((m) => { m.hidden = true; });
+  }
+
+  /* ── Recuperar desenho não salvo (rascunho automático) ──── */
+  function offerRecovery() {
+    const d = getDraft();
+    if (!d) return;
+    const p = d.projectId && getProject(d.projectId);
+    els.recoverMsg.textContent = p
+      ? t('Achamos alterações não salvas em “{name}”.', { name: p.name })
+      : t('Achamos um desenho que não foi salvo.');
+    els.recoverModal.hidden = false;
+  }
+  function recoverDraft() {
+    els.recoverModal.hidden = true;
+    resumeAudio();
+    iris(() => { callbacks.onRecoverDraft?.(); showOnly(els.app); callbacks.onAppReady?.(); });
+    playStart();
+  }
+  function discardDraft() {
+    els.recoverModal.hidden = true;
+    callbacks.onDiscardChanges?.();
   }
 
   function bindEvents() {
     els.btnStart.addEventListener('click', () => {
       resumeAudio();
-      iris(() => { renderGallery(); showOnly(els.gallery); });
+      iris(() => { renderGallery(); showOnly(els.gallery); offerRecovery(); });
     });
 
     els.btnBack.addEventListener('click', requestLeave);
@@ -480,11 +529,21 @@ export function createUI(callbacks) {
     els.leaveClose.addEventListener('click', () => { els.leaveModal.hidden = true; });
     els.leaveCancel.addEventListener('click', () => { els.leaveModal.hidden = true; });
     els.leaveModal.addEventListener('click', (e) => { if (e.target === els.leaveModal) els.leaveModal.hidden = true; });
-    els.leaveDiscard.addEventListener('click', () => { els.leaveModal.hidden = true; goToGallery(); });
-    els.leaveSave.addEventListener('click', () => {
+    els.leaveDiscard.addEventListener('click', () => {
       els.leaveModal.hidden = true;
-      if (save()) goToGallery();
+      callbacks.onDiscardChanges?.();
+      goToGallery();
     });
+    els.leaveSave.addEventListener('click', async () => {
+      els.leaveModal.hidden = true;
+      if (await save()) goToGallery();
+    });
+
+    // "×", Esc ou clicar fora = decidir depois (o rascunho continua guardado).
+    els.recoverClose.addEventListener('click', () => { els.recoverModal.hidden = true; });
+    els.recoverModal.addEventListener('click', (e) => { if (e.target === els.recoverModal) els.recoverModal.hidden = true; });
+    els.recoverDiscard.addEventListener('click', discardDraft);
+    els.recoverOpen.addEventListener('click', recoverDraft);
 
     els.btnSound.addEventListener('click', toggleSound);
 
@@ -498,46 +557,59 @@ export function createUI(callbacks) {
     els.exportClose.addEventListener('click', () => { els.exportModal.hidden = true; });
     els.exportModal.addEventListener('click', (e) => { if (e.target === els.exportModal) els.exportModal.hidden = true; });
     els.exportGif.addEventListener('click', () => { els.exportModal.hidden = true; callbacks.onExportGif?.(); });
+    els.exportGifBig.addEventListener('click', () => { els.exportModal.hidden = true; callbacks.onExportGif?.({ big: true }); });
     els.exportPng.addEventListener('click', () => { els.exportModal.hidden = true; callbacks.onExportPng?.(); });
+    els.exportPngClear.addEventListener('click', () => { els.exportModal.hidden = true; callbacks.onExportPng?.({ transparent: true }); });
+    els.exportProject.addEventListener('click', () => { els.exportModal.hidden = true; callbacks.onExportProject?.(); });
+    els.btnHelp.addEventListener('click', () => startTour());
+    els.btnLang.addEventListener('click', () => setLang(lang === 'pt' ? 'en' : 'pt'));
+    els.projectFile.addEventListener('change', () => {
+      importProjectFile(els.projectFile.files[0]);
+      els.projectFile.value = '';
+    });
+    // Arrastar um .retrobit para a galeria também importa.
+    els.gallery.addEventListener('dragover', (e) => e.preventDefault());
+    els.gallery.addEventListener('drop', (e) => {
+      const file = [...(e.dataTransfer?.files || [])].find((f) => f.name.endsWith('.retrobit') || f.type === 'application/json');
+      if (!file) return;
+      e.preventDefault();
+      importProjectFile(file);
+    });
     els.btnBackground.addEventListener('click', openBgModal);
+    els.btnRef.addEventListener('click', () => callbacks.onOpenReference?.());
     els.btnCrop.addEventListener('click', () => { cancelCrop(); els.resModal.hidden = false; });
 
-    els.btnMirrorH.addEventListener('click', () => {
-      state.mirrorH = !state.mirrorH;
-      els.btnMirrorH.classList.toggle('is-active', state.mirrorH);
-      els.btnMirrorH.setAttribute('aria-pressed', String(state.mirrorH));
+    els.btnLayers.addEventListener('click', () => {
+      setMoreOpen(false);
+      setLayersOpen(!els.app.classList.contains('is-layers-open'));
     });
-    els.btnMirrorV.addEventListener('click', () => {
-      state.mirrorV = !state.mirrorV;
-      els.btnMirrorV.classList.toggle('is-active', state.mirrorV);
-      els.btnMirrorV.setAttribute('aria-pressed', String(state.mirrorV));
+    els.btnMore.addEventListener('click', () => {
+      setLayersOpen(false);
+      setMoreOpen(!els.dock.classList.contains('is-more-open'));
     });
+    els.dockMore.addEventListener('click', (e) => { if (e.target.closest('button')) setMoreOpen(false); });
+    // Toque fora do menu "⋯" fecha-o.
+    document.addEventListener('pointerdown', (e) => {
+      if (els.dock.classList.contains('is-more-open') && !els.dock.contains(e.target)) setMoreOpen(false);
+    }, true);
 
-    els.btnShapeRect?.addEventListener('click', () => selectShape('rect'));
-    els.btnShapeEllipse?.addEventListener('click', () => selectShape('ellipse'));
-    els.btnShapeLine?.addEventListener('click', () => selectShape('line'));
+    els.btnMirrorH.addEventListener('click', () => { state.mirrorH = !state.mirrorH; syncMirrors(); });
+    els.btnMirrorV.addEventListener('click', () => { state.mirrorV = !state.mirrorV; syncMirrors(); });
+
+    shapeButtons.forEach((b) => b.addEventListener('click', () => selectShape(b.dataset.shape)));
+    els.btnGrid.addEventListener('click', () => { resumeAudio(); cycleGrid(); });
+    els.btnSelect.addEventListener('click', () => {
+      resumeAudio();
+      playSwitch();
+      setSelectMode(!state.selectMode);
+    });
 
     // Modais
-    els.colorClose.addEventListener('click', () => { els.colorModal.hidden = true; });
-    els.colorModal.addEventListener('click', (e) => { if (e.target === els.colorModal) els.colorModal.hidden = true; });
-    els.mOpDown.addEventListener('click', () => changeOpacity(-1));
-    els.mOpUp.addEventListener('click', () => changeOpacity(1));
-    els.mSizeDown.addEventListener('click', () => changeSize(-1));
-    els.mSizeUp.addEventListener('click', () => changeSize(1));
-    els.colorHex.addEventListener('change', () => {
-      const v = els.colorHex.value.trim();
-      if (/^#[0-9a-fA-F]{6}$/.test(v)) setToolColor(v.toLowerCase());
-      else {
-        const k = colorTargetShapeKey || colorTargetKey;
-        els.colorHex.value = colorTargetShapeKey ? state.shapeColors[k] : state.toolColors[k];
-      }
-    });
-
     els.bgClose.addEventListener('click', () => { els.bgModal.hidden = true; });
     els.bgModal.addEventListener('click', (e) => { if (e.target === els.bgModal) els.bgModal.hidden = true; });
     els.bgHex.addEventListener('change', () => {
       const v = els.bgHex.value.trim();
-      if (/^#[0-9a-fA-F]{6}$/.test(v)) setBg(v.toLowerCase());
+      if (HEX_RE.test(v)) setBg(v.toLowerCase());
       else els.bgHex.value = state.bgColor;
     });
 
@@ -563,10 +635,26 @@ export function createUI(callbacks) {
     els.delConfirm.addEventListener('click', confirmDelete);
     els.delModal.addEventListener('click', (e) => { if (e.target === els.delModal) els.delModal.hidden = true; });
 
+    // Código secreto: ↑ ↑ ↓ ↓ ← → ← → B A
+    const KONAMI = ['ArrowUp', 'ArrowUp', 'ArrowDown', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'ArrowLeft', 'ArrowRight', 'b', 'a'];
+    let konami = 0;
+    document.addEventListener('keydown', (e) => {
+      konami = e.key.toLowerCase() === KONAMI[konami].toLowerCase() ? konami + 1 : (e.key === KONAMI[0] ? 1 : 0);
+      if (konami < KONAMI.length) return;
+      konami = 0;
+      toast(t('código secreto!'));
+      playStart();
+      [...els.toolList.querySelectorAll('.wp-tool')].forEach((btn, i) => setTimeout(() => {
+        toolFx(btn, btn.dataset.key, state.toolColors[btn.dataset.key] || '#e400e4');
+      }, i * 90));
+    });
+
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         closeAllModals();
+        closeFloating();
         cancelCrop();
+        setPickMode(false);
         return;
       }
       // Atalhos só na tela de desenho e fora de campos de texto (lá o Ctrl+Z é do input).
@@ -579,17 +667,34 @@ export function createUI(callbacks) {
     });
   }
 
-  /** Feedback rápido no botão (ex.: "Guardado!"). */
-  function flash(btn, text) {
-    const orig = btn.textContent;
-    btn.textContent = text;
+  /** Feedback rápido no botão (ex.: ao salvar). */
+  function flash(btn) {
     btn.classList.add('is-flash');
-    setTimeout(() => { btn.textContent = orig; btn.classList.remove('is-flash'); }, 900);
+    setTimeout(() => btn.classList.remove('is-flash'), 900);
+  }
+
+  /** Desfile das ferramentas na splash (com as cores de fábrica), a balançar em sequência. */
+  async function buildParade() {
+    const urls = await Promise.all(TOOLS.map((t) => getTintedToolUrl(t, state.toolColors[t.key], state.theme)));
+    els.parade.innerHTML = urls.map((u, i) => `<img src="${u}" alt="" draggable="false" style="--i:${i}">`).join('');
   }
 
   function init() {
+    hydrateIcons(document);
+    // Cursores pixel-art → variáveis CSS (--cur-arrow, --cur-point, …), com o cursor do sistema como recurso.
+    const FALLBACK = {
+      arrow: 'default', point: 'pointer', press: 'pointer', text: 'text', cross: 'crosshair', bucket: 'crosshair',
+      picker: 'crosshair', lock: 'not-allowed', wait: 'wait', glove: 'grab', fist: 'grabbing', bomb: 'crosshair',
+    };
+    const root = document.documentElement.style;
+    CURSOR_NAMES.forEach((n) => root.setProperty(`--cur-${n}`, cursorCss(n, FALLBACK[n] || 'auto')));
+    initFx();
+    bindDynamite(els.btnClear);
+    buildParade();
+    els.version.textContent = `v${VERSION}`;
+    els.btnLang.textContent = lang === 'pt' ? 'English' : 'Português';
+    els.btnLang.title = lang === 'pt' ? 'Switch to English' : 'Mudar para português';
     buildToolList();
-    buildColorGrid(els.colorGrid, setToolColor);
     buildColorGrid(els.bgGrid, setBg);
     buildResList();
     els.btnClear.innerHTML = '<img class="obliterate__img" src="assets/tools/dynamite.png" alt="obliterar" draggable="false">';
@@ -600,5 +705,5 @@ export function createUI(callbacks) {
     bindEvents();
   }
 
-  return { init, selectTool, selectShape, applyToolColors, setCropHint };
+  return { init, selectTool, selectShape, applyToolColors, setCropHint, setActiveColor, closeFloating, toast, setSelectMode, syncGrid, syncMirrors };
 }

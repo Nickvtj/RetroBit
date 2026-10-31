@@ -1,3 +1,5 @@
+import { t } from './i18n.js';
+
 const A = 'assets/tools';
 
 /**
@@ -38,6 +40,7 @@ export const TOOLS = [
       { x: 0.18, y: 0.24, w: 0.11, h: 0.5, kind: 'light' },
     ],
   },
+  { key: 'bucket', tool: 'fill', label: 'balde', img: `${A}/bucket.png`, noSize: true },
   { key: 'eraser', tool: 'eraser', label: 'borracha', img: `${A}/eraser.png` },
 ];
 
@@ -64,6 +67,8 @@ export const TOOL_DEFS = {
   marker:  { widthScale: 2.6, amp: 2.0, alpha: 0.5,  composite: 'multiply',    cap: 'square', pressure: false, marker: true },
   spray:   { widthScale: 1.0, amp: 1.6, alpha: 0.85, composite: 'source-over', cap: 'round',  pressure: true, spray: true },
   eraser:  { widthScale: 2.8, amp: 0.9, alpha: 1.0,  composite: 'source-over', cap: 'round',  pressure: false, eraser: true },
+  // Balde: a região fica POR BAIXO do que já está na camada (as linhas tremem por cima).
+  fill:    { widthScale: 1,   amp: 0,   alpha: 1.0,  composite: 'destination-over', cap: 'round', pressure: false, fill: true },
   shapeRect:    { widthScale: 1, amp: 1.5, alpha: 1.0, composite: 'source-over', cap: 'round', pressure: false, shape: 'rect' },
   shapeEllipse: { widthScale: 1, amp: 1.5, alpha: 1.0, composite: 'source-over', cap: 'round', pressure: false, shape: 'ellipse' },
   shapeLine:    { widthScale: 1, amp: 1.5, alpha: 1.0, composite: 'source-over', cap: 'round', pressure: false, shape: 'line' },
@@ -110,6 +115,12 @@ export const state = {
   isCropping: false,
   cropStart: null,
 
+  isPicking: false, // conta-gotas: o próximo toque na tela captura uma cor
+  selectMode: false, // luva ligada (selecionar / mover / esticar / girar)
+  reference: null,   // imagem de referência do desenho (ver reference.js)
+  refAdjust: false,  // a mover/esticar a referência sobre a tela
+  grid: 0,           // grade de pixel art: 0 (desligada), 8, 16 ou 32 px
+
   mirrorH: false,  // espelho horizontal (eixo vertical no centro)
   mirrorV: false,  // espelho vertical (eixo horizontal no centro)
 
@@ -129,6 +140,7 @@ const DEFAULT_TOOL_COLORS = {
   brush: '#db2777',
   marker: '#e400e4',
   spray: '#f97316',
+  bucket: '#0bd3d3',
   eraser: '#000000',
 };
 TOOLS.forEach((t) => {
@@ -183,7 +195,7 @@ export function ensureLayers() {
 
 /** Inicializa o documento com uma camada (novo projeto ou migração). */
 export function initLayers(paths = []) {
-  const layer = createLayer('Camada 1', paths);
+  const layer = createLayer(t('Camada {n}', { n: 1 }), paths);
   state.layers = [layer];
   state.activeLayerId = layer.id;
 }
@@ -200,13 +212,21 @@ function cloneLayers(layers) {
   }));
 }
 
-/** Snapshot para o histórico (camadas + dimensões). */
+/**
+ * Snapshot para o histórico (camadas + dimensões + fundo).
+ *
+ * Os traços são IMUTÁVEIS depois de terminados (escalar/recortar criam traços
+ * novos), por isso o snapshot só copia as listas e partilha os traços — cada
+ * traço novo não duplica o desenho inteiro na memória.
+ */
 export function snapshotPaths() {
   return {
-    layers: cloneLayers(state.layers),
+    layers: state.layers.map((l) => ({ ...l, paths: l.paths.slice() })),
     activeLayerId: state.activeLayerId,
     w: state.canvasWidth,
     h: state.canvasHeight,
+    bg: state.bgColor,
+    ref: state.reference,
   };
 }
 
